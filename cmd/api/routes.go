@@ -27,6 +27,7 @@ func (s *APIServer) Routes() *chi.Mux {
 	r := chi.NewRouter()
 
 	r.Get("/healthz", makeHTTPHandleFunc(s.healthzHandler))
+	r.Head("/healthz", makeHTTPHandleFunc(s.healthzHandler))
 
 	r.Get("/actions", makeHTTPHandleFunc(s.listActionsHandler))
 	r.Get("/actions/{action}/count", makeHTTPHandleFunc(s.countGifsHandler))
