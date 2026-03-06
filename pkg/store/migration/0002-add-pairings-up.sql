@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS gifs (
+CREATE TABLE IF NOT EXISTS gifs_new (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     action TEXT NOT NULL,
     pairing TEXT NOT NULL CHECK (pairing IN ('f', 'm', 'ff', 'mm', 'fm', 'mf')),
@@ -9,6 +9,12 @@ CREATE TABLE IF NOT EXISTS gifs (
     nsfw BOOLEAN NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+INSERT INTO gifs_new SELECT * FROM gifs;
+
+DROP TABLE gifs;
+
+ALTER TABLE gifs_new RENAME TO gifs;
 
 CREATE INDEX IF NOT EXISTS idx_gifs_action_pairing ON gifs (action, pairing);
 CREATE INDEX IF NOT EXISTS idx_gifs_action_pairing_nsfw ON gifs (action, pairing, nsfw);

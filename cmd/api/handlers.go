@@ -22,9 +22,12 @@ type GifResponse struct {
 }
 
 var validPairings = map[string]bool{
+	"f":  true,
+	"m":  true,
 	"ff": true,
 	"mm": true,
 	"fm": true,
+	"mf": true,
 }
 
 // healthzHandler returns 200 OK for health checks.
@@ -74,7 +77,7 @@ func (s *APIServer) getRandomGifHandler(w http.ResponseWriter, r *http.Request) 
 
 	pairing := strings.ToLower(r.URL.Query().Get("pairing"))
 	if pairing != "" && !validPairings[pairing] {
-		u.WriteError(w, http.StatusBadRequest, fmt.Sprintf("invalid pairing: %s (valid: ff, mm, fm)", pairing))
+		u.WriteError(w, http.StatusBadRequest, fmt.Sprintf("invalid pairing: %s (valid: f, m, ff, mm, fm, mf)", pairing))
 		return nil
 	}
 

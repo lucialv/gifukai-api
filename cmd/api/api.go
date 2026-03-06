@@ -55,8 +55,8 @@ func (s *APIServer) Run() {
 		middleware.Recoverer,
 		cors.Handler(cors.Options{
 			AllowedOrigins:   []string{env.GetString("CORS_ALLOWED_ORIGIN", "*")},
-			AllowedMethods:   []string{"GET", "OPTIONS"},
-			AllowedHeaders:   []string{"Accept", "Content-Type"},
+			AllowedMethods:   []string{"GET", "POST", "DELETE", "PATCH", "OPTIONS"},
+			AllowedHeaders:   []string{"Accept", "Content-Type", "Authorization"},
 			AllowCredentials: false,
 			MaxAge:           3600,
 		}),

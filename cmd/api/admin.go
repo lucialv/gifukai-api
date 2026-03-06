@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -36,7 +37,7 @@ func (s *APIServer) uploadGifHandler(w http.ResponseWriter, r *http.Request) err
 		return nil
 	}
 	if !validPairings[pairing] {
-		u.WriteError(w, http.StatusBadRequest, fmt.Sprintf("invalid pairing: %s (valid: ff, mm, fm)", pairing))
+		u.WriteError(w, http.StatusBadRequest, fmt.Sprintf("invalid pairing: %s (valid: f, m, ff, mm, fm, mf)", pairing))
 		return nil
 	}
 
@@ -124,13 +125,15 @@ func (s *APIServer) deleteGifHandler(w http.ResponseWriter, r *http.Request) err
 	return u.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-// listGifsHandler handles GET /admin/gifs?action=hug&limit=50&offset=0
+// listGifsHandler handles GET /admin/gifs?action=hug&pairing=ff&limit=50&offset=0
 func (s *APIServer) listGifsHandler(w http.ResponseWriter, r *http.Request) error {
 	action := r.URL.Query().Get("action")
 	if action == "" {
 		u.WriteError(w, http.StatusBadRequest, "action query param is required")
 		return nil
 	}
+
+	pairing := r.URL.Query().Get("pairing")
 
 	limit := 50
 	offset := 0
@@ -145,7 +148,7 @@ func (s *APIServer) listGifsHandler(w http.ResponseWriter, r *http.Request) erro
 		}
 	}
 
-	gifs, err := s.Store.GetGifsByAction(action, limit, offset)
+	gifs, err := s.Store.GetGifsByActionAndPairing(action, pairing, limit, offset)
 	if err != nil {
 		return err
 	}
@@ -190,4 +193,82 @@ func (s *APIServer) listGifsHandler(w http.ResponseWriter, r *http.Request) erro
 		"gifs":  items,
 		"count": len(items),
 	})
+}
+
+// updateGifTagsHandler handles PATCH /admin/gifs/{gifId}/tags
+// Accepts JSON body: { "tags": "tag1, tag2" }
+func (s *APIServer) updateGifTagsHandler(w http.ResponseWriter, r *http.Request) error {
+	idStr := chi.URLParam(r, "gifId")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		u.WriteError(w, http.StatusBadRequest, "invalid gif ID")
+		return nil
+	}
+
+	gif, err := s.Store.GetGifByID(id)
+	if err != nil {
+		return err
+	}
+	if gif == nil {
+		u.WriteError(w, http.StatusNotFound, "gif not found")
+		return nil
+	}
+
+	var body struct {
+		Tags string `json:"tags"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		u.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return nil
+	}
+
+	var tagsPtr *string
+	if body.Tags != "" {
+		tagsPtr = &body.Tags
+	}
+
+	if err := s.Store.UpdateGifTags(id, tagsPtr); err != nil {
+		return fmt.Errorf("failed to update tags: %w", err)
+	}
+
+	return u.WriteJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+// updateGifPairingHandler handles PATCH /admin/gifs/{gifId}/pairing
+// Accepts JSON body: { "pairing": "ff" }
+func (s *APIServer) updateGifPairingHandler(w http.ResponseWriter, r *http.Request) error {
+	idStr := chi.URLParam(r, "gifId")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		u.WriteError(w, http.StatusBadRequest, "invalid gif ID")
+		return nil
+	}
+
+	gif, err := s.Store.GetGifByID(id)
+	if err != nil {
+		return err
+	}
+	if gif == nil {
+		u.WriteError(w, http.StatusNotFound, "gif not found")
+		return nil
+	}
+
+	var body struct {
+		Pairing string `json:"pairing"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		u.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return nil
+	}
+
+	if !validPairings[body.Pairing] {
+		u.WriteError(w, http.StatusBadRequest, fmt.Sprintf("invalid pairing: %s (valid: f, m, ff, mm, fm, mf)", body.Pairing))
+		return nil
+	}
+
+	if err := s.Store.UpdateGifPairing(id, body.Pairing); err != nil {
+		return fmt.Errorf("failed to update pairing: %w", err)
+	}
+
+	return u.WriteJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 }

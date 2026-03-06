@@ -38,6 +38,8 @@ func (s *APIServer) Routes() *chi.Mux {
 		r.Post("/gifs", makeHTTPHandleFunc(s.uploadGifHandler))
 		r.Delete("/gifs/{gifId}", makeHTTPHandleFunc(s.deleteGifHandler))
 		r.Get("/gifs", makeHTTPHandleFunc(s.listGifsHandler))
+		r.Patch("/gifs/{gifId}/tags", makeHTTPHandleFunc(s.updateGifTagsHandler))
+		r.Patch("/gifs/{gifId}/pairing", makeHTTPHandleFunc(s.updateGifPairingHandler))
 	})
 
 	return r

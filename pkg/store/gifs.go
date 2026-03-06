@@ -21,12 +21,15 @@ type GifStore interface {
 	GetRandomGif(action, pairing string, nsfw *bool) (*Gif, error)
 	GetRandomGifAnyPairing(action string, nsfw *bool) (*Gif, error)
 	GetGifsByAction(action string, limit, offset int) ([]Gif, error)
+	GetGifsByActionAndPairing(action, pairing string, limit, offset int) ([]Gif, error)
 	GetAllActions() ([]string, error)
 	CreateGif(gif *Gif) error
 	DeleteGif(id int64) error
 	GetGifByID(id int64) (*Gif, error)
 	CountGifs(action, pairing string) (int, error)
 	RefreshIDPool(action, pairing string) ([]int64, error)
+	UpdateGifTags(id int64, tags *string) error
+	UpdateGifPairing(id int64, pairing string) error
 }
 
 type SQLiteGifStore struct {
@@ -261,4 +264,51 @@ func (s *SQLiteGifStore) scanGifRow(rows *sql.Rows) (*Gif, error) {
 		return nil, err
 	}
 	return g, nil
+}
+
+// GetGifsByActionAndPairing returns GIFs for a given action, optionally filtered by pairing.
+func (s *SQLiteGifStore) GetGifsByActionAndPairing(action, pairing string, limit, offset int) ([]Gif, error) {
+	q := `
+		SELECT id, action, pairing, r2_key, content_type, size_bytes, tags, nsfw, created_at
+		FROM gifs
+		WHERE action = ?`
+	args := []any{action}
+
+	if pairing != "" {
+		q += ` AND pairing = ?`
+		args = append(args, pairing)
+	}
+
+	q += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
+
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var gifs []Gif
+	for rows.Next() {
+		g, err := s.scanGifRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		gifs = append(gifs, *g)
+	}
+	return gifs, nil
+}
+
+// UpdateGifTags updates the tags field for a GIF.
+func (s *SQLiteGifStore) UpdateGifTags(id int64, tags *string) error {
+	const q = `UPDATE gifs SET tags = ? WHERE id = ?`
+	_, err := s.db.Exec(q, tags, id)
+	return err
+}
+
+// UpdateGifPairing updates the pairing field for a GIF.
+func (s *SQLiteGifStore) UpdateGifPairing(id int64, pairing string) error {
+	const q = `UPDATE gifs SET pairing = ? WHERE id = ?`
+	_, err := s.db.Exec(q, pairing, id)
+	return err
 }
