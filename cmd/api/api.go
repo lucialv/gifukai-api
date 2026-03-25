@@ -31,9 +31,10 @@ type R2Config struct {
 }
 
 type APIServer struct {
-	Config    Config
-	Store     store.GifStore
-	R2Storage *storage.R2Storage
+	Config     Config
+	Store      store.GifStore
+	R2Storage  *storage.R2Storage
+	statsCache StatsCache
 }
 
 func NewAPIServer(config Config, gifStore store.GifStore, r2Storage *storage.R2Storage) *APIServer {

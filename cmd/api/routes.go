@@ -29,6 +29,7 @@ func (s *APIServer) Routes() *chi.Mux {
 	r.Get("/healthz", makeHTTPHandleFunc(s.healthzHandler))
 	r.Head("/healthz", makeHTTPHandleFunc(s.healthzHandler))
 
+	r.Get("/stats", makeHTTPHandleFunc(s.statsHandler))
 	r.Get("/actions", makeHTTPHandleFunc(s.listActionsHandler))
 	r.Get("/actions/{action}/count", makeHTTPHandleFunc(s.countGifsHandler))
 	r.Get("/{action}", makeHTTPHandleFunc(s.getRandomGifHandler))

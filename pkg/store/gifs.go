@@ -17,6 +17,18 @@ type Gif struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+type PairingCount struct {
+	Pairing string `json:"pairing"`
+	Count   int    `json:"count"`
+}
+
+type Stats struct {
+	TotalGifs     int            `json:"total_gifs"`
+	TotalActions  int            `json:"total_actions"`
+	TotalBytes    int64          `json:"total_bytes"`
+	GifsByPairing []PairingCount `json:"gifs_by_pairing"`
+}
+
 type GifStore interface {
 	GetRandomGif(action, pairing string, nsfw *bool) (*Gif, error)
 	GetRandomGifAnyPairing(action string, nsfw *bool) (*Gif, error)
@@ -30,6 +42,7 @@ type GifStore interface {
 	RefreshIDPool(action, pairing string) ([]int64, error)
 	UpdateGifTags(id int64, tags *string) error
 	UpdateGifPairing(id int64, pairing string) error
+	GetStats() (*Stats, error)
 }
 
 type SQLiteGifStore struct {
@@ -311,4 +324,35 @@ func (s *SQLiteGifStore) UpdateGifPairing(id int64, pairing string) error {
 	const q = `UPDATE gifs SET pairing = ? WHERE id = ?`
 	_, err := s.db.Exec(q, pairing, id)
 	return err
+}
+
+func (s *SQLiteGifStore) GetStats() (*Stats, error) {
+	var stats Stats
+
+	err := s.db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(size_bytes), 0) FROM gifs`).
+		Scan(&stats.TotalGifs, &stats.TotalBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.db.QueryRow(`SELECT COUNT(DISTINCT action) FROM gifs`).Scan(&stats.TotalActions)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := s.db.Query(`SELECT pairing, COUNT(*) FROM gifs GROUP BY pairing ORDER BY pairing`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var pc PairingCount
+		if err := rows.Scan(&pc.Pairing, &pc.Count); err != nil {
+			return nil, err
+		}
+		stats.GifsByPairing = append(stats.GifsByPairing, pc)
+	}
+
+	return &stats, nil
 }

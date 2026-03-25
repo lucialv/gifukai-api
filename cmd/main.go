@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/lucialv/anime-api-cdn/cmd/api"
 	"github.com/lucialv/anime-api-cdn/pkg/env"
@@ -57,5 +58,6 @@ func main() {
 	log.Println("Connected to Cloudflare R2")
 
 	server := api.NewAPIServer(cfg, gifStore, r2Storage)
+	server.StartStatsWorker(2 * time.Hour)
 	server.Run()
 }
