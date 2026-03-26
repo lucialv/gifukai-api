@@ -19,7 +19,6 @@ type GifResponse struct {
 	Filename    string  `json:"filename"`
 	ContentType string  `json:"content_type"`
 	SizeBytes   int64   `json:"size_bytes"`
-	AnimeID     *int64  `json:"anime_id,omitempty"`
 	AnimeName   *string `json:"anime_name,omitempty"`
 }
 
@@ -136,7 +135,6 @@ func (s *APIServer) buildGifResponse(g *store.Gif) GifResponse {
 		Filename:    filename,
 		ContentType: g.ContentType,
 		SizeBytes:   g.SizeBytes,
-		AnimeID:     g.AnimeID,
 		AnimeName:   g.AnimeName,
 	}
 }
