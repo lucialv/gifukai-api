@@ -75,10 +75,11 @@ func (s *APIServer) statsHandler(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	return u.WriteJSON(w, http.StatusOK, map[string]any{
-		"total_gifs":      stats.TotalGifs,
-		"total_actions":   stats.TotalActions,
-		"total_size":      formatBytes(stats.TotalBytes),
+		"total_gifs":       stats.TotalGifs,
+		"total_actions":    stats.TotalActions,
+		"total_animes":     stats.TotalAnimes,
+		"total_size":       formatBytes(stats.TotalBytes),
 		"total_size_bytes": stats.TotalBytes,
-		"gifs_by_pairing": pairings,
+		"gifs_by_pairing":  pairings,
 	})
 }

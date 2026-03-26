@@ -13,12 +13,14 @@ import (
 )
 
 type GifResponse struct {
-	Action      string `json:"action"`
-	Pairing     string `json:"pairing"`
-	URL         string `json:"url"`
-	Filename    string `json:"filename"`
-	ContentType string `json:"content_type"`
-	SizeBytes   int64  `json:"size_bytes"`
+	Action      string  `json:"action"`
+	Pairing     string  `json:"pairing"`
+	URL         string  `json:"url"`
+	Filename    string  `json:"filename"`
+	ContentType string  `json:"content_type"`
+	SizeBytes   int64   `json:"size_bytes"`
+	AnimeID     *int64  `json:"anime_id,omitempty"`
+	AnimeName   *string `json:"anime_name,omitempty"`
 }
 
 var validPairings = map[string]bool{
@@ -49,20 +51,27 @@ func (s *APIServer) listActionsHandler(w http.ResponseWriter, r *http.Request) e
 	})
 }
 
-// countGifsHandler returns how many GIFs exist for a given action + optional pairing.
+// countGifsHandler returns how many GIFs exist for a given action, with breakdown by pairing.
 func (s *APIServer) countGifsHandler(w http.ResponseWriter, r *http.Request) error {
 	action := chi.URLParam(r, "action")
-	pairing := r.URL.Query().Get("pairing")
 
-	count, err := s.Store.CountGifs(action, pairing)
+	count, err := s.Store.CountGifs(action, "")
 	if err != nil {
 		return err
 	}
 
+	byPairing, err := s.Store.CountGifsByPairing(action)
+	if err != nil {
+		return err
+	}
+	if byPairing == nil {
+		byPairing = []store.PairingCount{}
+	}
+
 	return u.WriteJSON(w, http.StatusOK, map[string]any{
-		"action":  action,
-		"pairing": pairing,
-		"count":   count,
+		"action":     action,
+		"count":      count,
+		"by_pairing": byPairing,
 	})
 }
 
@@ -111,21 +120,23 @@ func (s *APIServer) getRandomGifHandler(w http.ResponseWriter, r *http.Request) 
 		return nil
 	}
 
-	resp := s.buildGifResponse(result.Action, result.Pairing, result.R2Key, result.ContentType, result.SizeBytes)
+	resp := s.buildGifResponse(result)
 	return u.WriteJSON(w, http.StatusOK, resp)
 }
 
 // buildGifResponse constructs the JSON response object.
-func (s *APIServer) buildGifResponse(action, pairing, r2Key, contentType string, sizeBytes int64) GifResponse {
+func (s *APIServer) buildGifResponse(g *store.Gif) GifResponse {
 	cdnBase := strings.TrimRight(s.Config.CDNBaseURL, "/")
-	filename := filepath.Base(r2Key)
+	filename := filepath.Base(g.R2Key)
 
 	return GifResponse{
-		Action:      action,
-		Pairing:     pairing,
-		URL:         fmt.Sprintf("%s/%s", cdnBase, r2Key),
+		Action:      g.Action,
+		Pairing:     g.Pairing,
+		URL:         fmt.Sprintf("%s/%s", cdnBase, g.R2Key),
 		Filename:    filename,
-		ContentType: contentType,
-		SizeBytes:   sizeBytes,
+		ContentType: g.ContentType,
+		SizeBytes:   g.SizeBytes,
+		AnimeID:     g.AnimeID,
+		AnimeName:   g.AnimeName,
 	}
 }

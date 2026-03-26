@@ -86,13 +86,18 @@ func (s *APIServer) uploadGifHandler(w http.ResponseWriter, r *http.Request) err
 	if tags != "" {
 		gif.Tags = &tags
 	}
+	if animeIDStr := r.FormValue("anime_id"); animeIDStr != "" {
+		if aid, err := strconv.ParseInt(animeIDStr, 10, 64); err == nil {
+			gif.AnimeID = &aid
+		}
+	}
 
 	if err := s.Store.CreateGif(gif); err != nil {
 		_ = s.R2Storage.DeleteFile(r2Key)
 		return fmt.Errorf("failed to create gif record: %w", err)
 	}
 
-	resp := s.buildGifResponse(gif.Action, gif.Pairing, gif.R2Key, gif.ContentType, gif.SizeBytes)
+	resp := s.buildGifResponse(gif)
 	return u.WriteJSON(w, http.StatusCreated, resp)
 }
 
@@ -156,15 +161,17 @@ func (s *APIServer) listGifsHandler(w http.ResponseWriter, r *http.Request) erro
 	cdnBase := strings.TrimRight(s.Config.CDNBaseURL, "/")
 
 	type gifItem struct {
-		ID          int64  `json:"id"`
-		Action      string `json:"action"`
-		Pairing     string `json:"pairing"`
-		URL         string `json:"url"`
-		Filename    string `json:"filename"`
-		ContentType string `json:"content_type"`
-		SizeBytes   int64  `json:"size_bytes"`
-		NSFW        bool   `json:"nsfw"`
-		Tags        string `json:"tags,omitempty"`
+		ID          int64   `json:"id"`
+		Action      string  `json:"action"`
+		Pairing     string  `json:"pairing"`
+		URL         string  `json:"url"`
+		Filename    string  `json:"filename"`
+		ContentType string  `json:"content_type"`
+		SizeBytes   int64   `json:"size_bytes"`
+		NSFW        bool    `json:"nsfw"`
+		Tags        string  `json:"tags,omitempty"`
+		AnimeID     *int64  `json:"anime_id,omitempty"`
+		AnimeName   *string `json:"anime_name,omitempty"`
 	}
 
 	var items []gifItem
@@ -178,6 +185,8 @@ func (s *APIServer) listGifsHandler(w http.ResponseWriter, r *http.Request) erro
 			ContentType: g.ContentType,
 			SizeBytes:   g.SizeBytes,
 			NSFW:        g.NSFW,
+			AnimeID:     g.AnimeID,
+			AnimeName:   g.AnimeName,
 		}
 		if g.Tags != nil {
 			item.Tags = *g.Tags
@@ -192,6 +201,88 @@ func (s *APIServer) listGifsHandler(w http.ResponseWriter, r *http.Request) erro
 	return u.WriteJSON(w, http.StatusOK, map[string]any{
 		"gifs":  items,
 		"count": len(items),
+	})
+}
+
+// listAllGifsHandler handles GET /admin/gifs/all?pairing=ff&limit=50&offset=0
+func (s *APIServer) listAllGifsHandler(w http.ResponseWriter, r *http.Request) error {
+	pairing := r.URL.Query().Get("pairing")
+
+	limit := 50
+	offset := 0
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= 200 {
+			limit = v
+		}
+	}
+	if o := r.URL.Query().Get("offset"); o != "" {
+		if v, err := strconv.Atoi(o); err == nil && v >= 0 {
+			offset = v
+		}
+	}
+
+	gifs, err := s.Store.ListAllGifs(pairing, limit, offset)
+	if err != nil {
+		return err
+	}
+
+	total, err := s.Store.CountAllGifs(pairing)
+	if err != nil {
+		return err
+	}
+
+	cdnBase := strings.TrimRight(s.Config.CDNBaseURL, "/")
+
+	type gifItem struct {
+		ID          int64   `json:"id"`
+		Action      string  `json:"action"`
+		Pairing     string  `json:"pairing"`
+		URL         string  `json:"url"`
+		Filename    string  `json:"filename"`
+		ContentType string  `json:"content_type"`
+		SizeBytes   int64   `json:"size_bytes"`
+		NSFW        bool    `json:"nsfw"`
+		Tags        string  `json:"tags,omitempty"`
+		AnimeID     *int64  `json:"anime_id,omitempty"`
+		AnimeName   *string `json:"anime_name,omitempty"`
+	}
+
+	var items []gifItem
+	for _, g := range gifs {
+		item := gifItem{
+			ID:          g.ID,
+			Action:      g.Action,
+			Pairing:     g.Pairing,
+			URL:         fmt.Sprintf("%s/%s", cdnBase, g.R2Key),
+			Filename:    filepath.Base(g.R2Key),
+			ContentType: g.ContentType,
+			SizeBytes:   g.SizeBytes,
+			NSFW:        g.NSFW,
+			AnimeID:     g.AnimeID,
+			AnimeName:   g.AnimeName,
+		}
+		if g.Tags != nil {
+			item.Tags = *g.Tags
+		}
+		items = append(items, item)
+	}
+
+	if items == nil {
+		items = []gifItem{}
+	}
+
+	byPairing, err := s.Store.CountGifsByPairing("")
+	if err != nil {
+		return err
+	}
+	if byPairing == nil {
+		byPairing = []store.PairingCount{}
+	}
+
+	return u.WriteJSON(w, http.StatusOK, map[string]any{
+		"gifs":       items,
+		"total":      total,
+		"by_pairing": byPairing,
 	})
 }
 
@@ -271,4 +362,110 @@ func (s *APIServer) updateGifPairingHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	return u.WriteJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (s *APIServer) updateGifAnimeHandler(w http.ResponseWriter, r *http.Request) error {
+	idStr := chi.URLParam(r, "gifId")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		u.WriteError(w, http.StatusBadRequest, "invalid gif ID")
+		return nil
+	}
+
+	gif, err := s.Store.GetGifByID(id)
+	if err != nil {
+		return err
+	}
+	if gif == nil {
+		u.WriteError(w, http.StatusNotFound, "gif not found")
+		return nil
+	}
+
+	var body struct {
+		AnimeID *int64 `json:"anime_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		u.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return nil
+	}
+
+	if err := s.Store.UpdateGifAnime(id, body.AnimeID); err != nil {
+		return fmt.Errorf("failed to update anime: %w", err)
+	}
+
+	return u.WriteJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (s *APIServer) listAnimesHandler(w http.ResponseWriter, r *http.Request) error {
+	animes, err := s.Store.GetAllAnimes()
+	if err != nil {
+		return err
+	}
+	if animes == nil {
+		animes = []store.Anime{}
+	}
+	return u.WriteJSON(w, http.StatusOK, animes)
+}
+
+func (s *APIServer) createAnimeHandler(w http.ResponseWriter, r *http.Request) error {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		u.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return nil
+	}
+	if body.Name == "" {
+		u.WriteError(w, http.StatusBadRequest, "name is required")
+		return nil
+	}
+
+	anime := &store.Anime{Name: body.Name}
+	if err := s.Store.CreateAnime(anime); err != nil {
+		return fmt.Errorf("failed to create anime: %w", err)
+	}
+
+	return u.WriteJSON(w, http.StatusCreated, anime)
+}
+
+func (s *APIServer) updateAnimeHandler(w http.ResponseWriter, r *http.Request) error {
+	idStr := chi.URLParam(r, "animeId")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		u.WriteError(w, http.StatusBadRequest, "invalid anime ID")
+		return nil
+	}
+
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		u.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return nil
+	}
+	if body.Name == "" {
+		u.WriteError(w, http.StatusBadRequest, "name is required")
+		return nil
+	}
+
+	if err := s.Store.UpdateAnime(id, body.Name); err != nil {
+		return fmt.Errorf("failed to update anime: %w", err)
+	}
+
+	return u.WriteJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (s *APIServer) deleteAnimeHandler(w http.ResponseWriter, r *http.Request) error {
+	idStr := chi.URLParam(r, "animeId")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		u.WriteError(w, http.StatusBadRequest, "invalid anime ID")
+		return nil
+	}
+
+	if err := s.Store.DeleteAnime(id); err != nil {
+		return fmt.Errorf("failed to delete anime: %w", err)
+	}
+
+	return u.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

@@ -29,6 +29,8 @@ func main() {
 		Env:        env.GetString("ENV", "development"),
 		CDNBaseURL: env.GetString("CDN_BASE_URL", "https://cdn.example.com"),
 		AdminKey:   env.GetString("ADMIN_API_KEY", ""),
+		AdminUser:  env.GetString("ADMIN_USER", ""),
+		AdminPass:  env.GetString("ADMIN_PASS", ""),
 		R2: api.R2Config{
 			AccountID:       env.GetString("R2_ACCOUNT_ID", ""),
 			AccessKeyID:     env.GetString("R2_ACCESS_KEY_ID", ""),

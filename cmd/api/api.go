@@ -3,6 +3,7 @@ package api
 import (
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/lucialv/anime-api-cdn/pkg/env"
@@ -20,6 +21,8 @@ type Config struct {
 	Env        string
 	CDNBaseURL string
 	AdminKey   string
+	AdminUser  string
+	AdminPass  string
 	R2         R2Config
 }
 
@@ -35,6 +38,7 @@ type APIServer struct {
 	Store      store.GifStore
 	R2Storage  *storage.R2Storage
 	statsCache StatsCache
+	sessions   sync.Map
 }
 
 func NewAPIServer(config Config, gifStore store.GifStore, r2Storage *storage.R2Storage) *APIServer {
@@ -56,7 +60,7 @@ func (s *APIServer) Run() {
 		middleware.Recoverer,
 		cors.Handler(cors.Options{
 			AllowedOrigins:   []string{env.GetString("CORS_ALLOWED_ORIGIN", "*")},
-			AllowedMethods:   []string{"GET", "POST", "DELETE", "PATCH", "OPTIONS"},
+			AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"},
 			AllowedHeaders:   []string{"Accept", "Content-Type", "Authorization"},
 			AllowCredentials: false,
 			MaxAge:           3600,

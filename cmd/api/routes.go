@@ -31,16 +31,28 @@ func (s *APIServer) Routes() *chi.Mux {
 
 	r.Get("/stats", makeHTTPHandleFunc(s.statsHandler))
 	r.Get("/actions", makeHTTPHandleFunc(s.listActionsHandler))
-	r.Get("/actions/{action}/count", makeHTTPHandleFunc(s.countGifsHandler))
 	r.Get("/{action}", makeHTTPHandleFunc(s.getRandomGifHandler))
+
+	r.Post("/admin/login", makeHTTPHandleFunc(s.loginHandler))
 
 	r.Route("/admin", func(r chi.Router) {
 		r.Use(s.AdminKeyMiddleware)
-		r.Post("/gifs", makeHTTPHandleFunc(s.uploadGifHandler))
-		r.Delete("/gifs/{gifId}", makeHTTPHandleFunc(s.deleteGifHandler))
-		r.Get("/gifs", makeHTTPHandleFunc(s.listGifsHandler))
-		r.Patch("/gifs/{gifId}/tags", makeHTTPHandleFunc(s.updateGifTagsHandler))
-		r.Patch("/gifs/{gifId}/pairing", makeHTTPHandleFunc(s.updateGifPairingHandler))
+		r.Route("/gifs", func(r chi.Router) {
+			r.Get("/", makeHTTPHandleFunc(s.listGifsHandler))
+			r.Post("/", makeHTTPHandleFunc(s.uploadGifHandler))
+			r.Get("/all", makeHTTPHandleFunc(s.listAllGifsHandler))
+			r.Delete("/{gifId}", makeHTTPHandleFunc(s.deleteGifHandler))
+			r.Patch("/{gifId}/tags", makeHTTPHandleFunc(s.updateGifTagsHandler))
+			r.Patch("/{gifId}/pairing", makeHTTPHandleFunc(s.updateGifPairingHandler))
+			r.Patch("/{gifId}/anime", makeHTTPHandleFunc(s.updateGifAnimeHandler))
+		})
+		r.Get("/actions/{action}/count", makeHTTPHandleFunc(s.countGifsHandler))
+		r.Route("/animes", func(r chi.Router) {
+			r.Get("/", makeHTTPHandleFunc(s.listAnimesHandler))
+			r.Post("/", makeHTTPHandleFunc(s.createAnimeHandler))
+			r.Put("/{animeId}", makeHTTPHandleFunc(s.updateAnimeHandler))
+			r.Delete("/{animeId}", makeHTTPHandleFunc(s.deleteAnimeHandler))
+		})
 	})
 
 	return r
