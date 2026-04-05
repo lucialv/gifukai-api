@@ -8,8 +8,11 @@ import (
 	"strings"
 	"time"
 
-	u "github.com/lucialv/anime-api-cdn/pkg/utils"
+	"github.com/lucialv/gifukai-api/cmd/api/handlers"
+	u "github.com/lucialv/gifukai-api/pkg/utils"
 )
+
+// ~~ admin auth ~~
 
 type session struct {
 	ExpiresAt time.Time
@@ -80,5 +83,40 @@ func (s *APIServer) loginHandler(w http.ResponseWriter, r *http.Request) error {
 
 	return u.WriteJSON(w, http.StatusOK, map[string]string{
 		"token": token,
+	})
+}
+
+// ~~ user auth ~~
+
+type userSession struct {
+	UserID    int64
+	ExpiresAt time.Time
+}
+
+func (s *APIServer) UserAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if auth == "" {
+			u.WriteError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+
+		token := strings.TrimPrefix(auth, "Bearer ")
+
+		val, ok := s.userSessions.Load(token)
+		if !ok {
+			u.WriteError(w, http.StatusUnauthorized, "invalid or expired token")
+			return
+		}
+
+		sess := val.(userSession)
+		if time.Now().After(sess.ExpiresAt) {
+			s.userSessions.Delete(token)
+			u.WriteError(w, http.StatusUnauthorized, "token expired")
+			return
+		}
+
+		ctx := handlers.SetUserID(r.Context(), sess.UserID)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

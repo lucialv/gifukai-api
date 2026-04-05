@@ -1,4 +1,4 @@
-module github.com/lucialv/anime-api-cdn
+module github.com/lucialv/gifukai-api
 
 go 1.24.0
 

@@ -5,7 +5,6 @@ import (
 	"strings"
 )
 
-// Load reads a .env file and sets environment variables.
 func Load() {
 	envFileName := ".env"
 	envF, err := os.ReadFile(envFileName)
@@ -29,7 +28,6 @@ func Load() {
 	}
 }
 
-// GetString returns the value of an environment variable, or a fallback.
 func GetString(name, fallback string) string {
 	env, ok := os.LookupEnv(name)
 	if !ok {

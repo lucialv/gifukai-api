@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lucialv/anime-api-cdn/pkg/store"
-	u "github.com/lucialv/anime-api-cdn/pkg/utils"
+	"github.com/lucialv/gifukai-api/pkg/store"
+	u "github.com/lucialv/gifukai-api/pkg/utils"
 )
 
 type StatsCache struct {
