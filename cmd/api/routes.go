@@ -4,15 +4,14 @@ import (
 	"log"
 	"net/http"
 
-	u "github.com/lucialv/anime-api-cdn/pkg/utils"
+	"github.com/lucialv/gifukai-api/cmd/api/handlers"
+	u "github.com/lucialv/gifukai-api/pkg/utils"
 
 	"github.com/go-chi/chi/v5"
 )
 
-// apiFunc is a handler that returns an error.
 type apiFunc func(http.ResponseWriter, *http.Request) error
 
-// makeHTTPHandleFunc wraps an apiFunc into an http.HandlerFunc.
 func makeHTTPHandleFunc(f apiFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := f(w, r); err != nil {
@@ -22,16 +21,41 @@ func makeHTTPHandleFunc(f apiFunc) http.HandlerFunc {
 	}
 }
 
-// Routes returns the chi router with all API routes.
 func (s *APIServer) Routes() *chi.Mux {
+	h := &handlers.Handler{
+		Store:      s.Store,
+		CDNBaseURL: s.Config.CDNBaseURL,
+		R2Storage:  s.R2Storage,
+	}
+
 	r := chi.NewRouter()
 
-	r.Get("/healthz", makeHTTPHandleFunc(s.healthzHandler))
-	r.Head("/healthz", makeHTTPHandleFunc(s.healthzHandler))
+	r.Get("/healthz", makeHTTPHandleFunc(h.HealthzHandler))
+	r.Head("/healthz", makeHTTPHandleFunc(h.HealthzHandler))
 
 	r.Get("/stats", makeHTTPHandleFunc(s.statsHandler))
-	r.Get("/actions", makeHTTPHandleFunc(s.listActionsHandler))
-	r.Get("/{action}", makeHTTPHandleFunc(s.getRandomGifHandler))
+	r.Get("/actions", makeHTTPHandleFunc(h.ListActionsHandler))
+
+	r.Get("/library", makeHTTPHandleFunc(s.publicListGifsHandler))
+	r.Get("/library/animes", makeHTTPHandleFunc(s.publicListAnimesHandler))
+	r.Get("/leaderboard", makeHTTPHandleFunc(h.LeaderboardHandler))
+
+	r.Post("/auth/google/onetap", makeHTTPHandleFunc(s.googleOneTapHandler))
+	r.Get("/auth/github", makeHTTPHandleFunc(s.githubAuthHandler))
+	r.Get("/auth/github/callback", makeHTTPHandleFunc(s.githubCallbackHandler))
+	r.Get("/auth/me", makeHTTPHandleFunc(s.authMeHandler))
+	r.Post("/auth/logout", makeHTTPHandleFunc(s.authLogoutHandler))
+
+	r.Route("/user", func(r chi.Router) {
+		r.Use(s.UserAuthMiddleware)
+		r.Patch("/profile", makeHTTPHandleFunc(h.UpdateProfileHandler))
+		r.Post("/reports", makeHTTPHandleFunc(h.CreateReportHandler))
+		r.Post("/suggestions", makeHTTPHandleFunc(h.CreateSuggestionHandler))
+		r.Get("/suggestions", makeHTTPHandleFunc(h.ListUserSuggestionsHandler))
+		r.Get("/suggestions/limit", makeHTTPHandleFunc(h.UserSuggestionsLimitHandler))
+	})
+
+	r.Get("/{action}", makeHTTPHandleFunc(h.GetRandomGifHandler))
 
 	r.Post("/admin/login", makeHTTPHandleFunc(s.loginHandler))
 
@@ -46,12 +70,21 @@ func (s *APIServer) Routes() *chi.Mux {
 			r.Patch("/{gifId}/pairing", makeHTTPHandleFunc(s.updateGifPairingHandler))
 			r.Patch("/{gifId}/anime", makeHTTPHandleFunc(s.updateGifAnimeHandler))
 		})
-		r.Get("/actions/{action}/count", makeHTTPHandleFunc(s.countGifsHandler))
+		r.Get("/actions/{action}/count", makeHTTPHandleFunc(h.CountGifsHandler))
 		r.Route("/animes", func(r chi.Router) {
 			r.Get("/", makeHTTPHandleFunc(s.listAnimesHandler))
 			r.Post("/", makeHTTPHandleFunc(s.createAnimeHandler))
 			r.Put("/{animeId}", makeHTTPHandleFunc(s.updateAnimeHandler))
 			r.Delete("/{animeId}", makeHTTPHandleFunc(s.deleteAnimeHandler))
+		})
+		r.Route("/reports", func(r chi.Router) {
+			r.Get("/", makeHTTPHandleFunc(h.ListReportsHandler))
+			r.Patch("/{reportId}", makeHTTPHandleFunc(h.UpdateReportHandler))
+		})
+		r.Route("/suggestions", func(r chi.Router) {
+			r.Get("/", makeHTTPHandleFunc(h.ListSuggestionsHandler))
+			r.Post("/{suggestionId}/approve", makeHTTPHandleFunc(h.ApproveSuggestionHandler))
+			r.Post("/{suggestionId}/reject", makeHTTPHandleFunc(h.RejectSuggestionHandler))
 		})
 	})
 

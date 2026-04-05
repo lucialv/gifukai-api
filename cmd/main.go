@@ -6,10 +6,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/lucialv/anime-api-cdn/cmd/api"
-	"github.com/lucialv/anime-api-cdn/pkg/env"
-	"github.com/lucialv/anime-api-cdn/pkg/storage"
-	"github.com/lucialv/anime-api-cdn/pkg/store"
+	"github.com/lucialv/gifukai-api/cmd/api"
+	"github.com/lucialv/gifukai-api/pkg/env"
+	"github.com/lucialv/gifukai-api/pkg/storage"
+	"github.com/lucialv/gifukai-api/pkg/store"
+
 
 	_ "github.com/tursodatabase/libsql-client-go/libsql"
 )
@@ -31,12 +32,18 @@ func main() {
 		AdminKey:   env.GetString("ADMIN_API_KEY", ""),
 		AdminUser:  env.GetString("ADMIN_USER", ""),
 		AdminPass:  env.GetString("ADMIN_PASS", ""),
-		R2: api.R2Config{
+		R2: storage.R2Config{
 			AccountID:       env.GetString("R2_ACCOUNT_ID", ""),
 			AccessKeyID:     env.GetString("R2_ACCESS_KEY_ID", ""),
 			AccessKeySecret: env.GetString("R2_ACCESS_KEY_SECRET", ""),
 			BucketName:      env.GetString("R2_BUCKET_NAME", ""),
 		},
+
+		GoogleClientID:     env.GetString("GOOGLE_CLIENT_ID", ""),
+		GitHubClientID:     env.GetString("GITHUB_CLIENT_ID", ""),
+		GitHubClientSecret: env.GetString("GITHUB_CLIENT_SECRET", ""),
+		GitHubRedirectURL:  env.GetString("GITHUB_REDIRECT_URL", ""),
+		FrontendURL:        env.GetString("FRONTEND_URL", "https://gifukai.com"),
 	}
 
 	gifStore, err := store.NewGifStore(
@@ -48,12 +55,7 @@ func main() {
 	}
 	log.Println("Connected to Turso database")
 
-	r2Storage, err := storage.NewR2Storage(storage.R2Config{
-		AccountID:       cfg.R2.AccountID,
-		AccessKeyID:     cfg.R2.AccessKeyID,
-		AccessKeySecret: cfg.R2.AccessKeySecret,
-		BucketName:      cfg.R2.BucketName,
-	})
+	r2Storage, err := storage.NewR2Storage(cfg.R2)
 	if err != nil {
 		log.Fatalf("Failed to initialize R2 storage: %v", err)
 	}

@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -27,6 +29,8 @@ type R2Config struct {
 func NewR2Storage(config R2Config) (*R2Storage, error) {
 	endpoint := fmt.Sprintf("https://%s.r2.cloudflarestorage.com", config.AccountID)
 
+	httpClient := &http.Client{Timeout: 60 * time.Second}
+
 	sess, err := session.NewSession(&aws.Config{
 		Region:   aws.String("auto"),
 		Endpoint: aws.String(endpoint),
@@ -36,6 +40,7 @@ func NewR2Storage(config R2Config) (*R2Storage, error) {
 			"",
 		),
 		S3ForcePathStyle: aws.Bool(true),
+		HTTPClient:       httpClient,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AWS session: %w", err)
@@ -47,7 +52,6 @@ func NewR2Storage(config R2Config) (*R2Storage, error) {
 	}, nil
 }
 
-// UploadFile uploads a file to R2.
 func (r *R2Storage) UploadFile(key string, data []byte, contentType string) error {
 	_, err := r.client.PutObject(&s3.PutObjectInput{
 		Bucket:      aws.String(r.bucketName),
@@ -61,7 +65,6 @@ func (r *R2Storage) UploadFile(key string, data []byte, contentType string) erro
 	return nil
 }
 
-// DownloadFile downloads a file from R2.
 func (r *R2Storage) DownloadFile(key string) ([]byte, error) {
 	result, err := r.client.GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(r.bucketName),
@@ -79,7 +82,6 @@ func (r *R2Storage) DownloadFile(key string) ([]byte, error) {
 	return data, nil
 }
 
-// DeleteFile removes a file from R2.
 func (r *R2Storage) DeleteFile(key string) error {
 	_, err := r.client.DeleteObject(&s3.DeleteObjectInput{
 		Bucket: aws.String(r.bucketName),
@@ -91,7 +93,6 @@ func (r *R2Storage) DeleteFile(key string) error {
 	return nil
 }
 
-// FileExists checks if a file exists in R2.
 func (r *R2Storage) FileExists(key string) (bool, error) {
 	_, err := r.client.HeadObject(&s3.HeadObjectInput{
 		Bucket: aws.String(r.bucketName),
@@ -106,7 +107,6 @@ func (r *R2Storage) FileExists(key string) (bool, error) {
 	return true, nil
 }
 
-// GetFileSize returns the size of a file in R2.
 func (r *R2Storage) GetFileSize(key string) (int64, error) {
 	result, err := r.client.HeadObject(&s3.HeadObjectInput{
 		Bucket: aws.String(r.bucketName),
