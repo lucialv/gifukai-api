@@ -91,6 +91,9 @@ func (s *SQLiteGifStore) GetLeaderboard(limit int) ([]LeaderboardEntry, error) {
 		}
 		entries = append(entries, e)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return entries, nil
 }
 

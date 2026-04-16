@@ -18,3 +18,11 @@ type ErrorResponse struct {
 func WriteError(w http.ResponseWriter, status int, message string) {
 	WriteJSON(w, status, ErrorResponse{Error: message})
 }
+
+// OrEmpty ensures nil slices serialize as [] instead of null in JSON :3
+func OrEmpty[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
+}

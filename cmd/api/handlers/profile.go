@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -11,6 +12,8 @@ import (
 type updateProfileRequest struct {
 	DisplayName string `json:"display_name"`
 }
+
+const maxDisplayNameLen = 25
 
 func (h *Handler) UpdateProfileHandler(w http.ResponseWriter, r *http.Request) error {
 	userID := GetUserID(r)
@@ -26,8 +29,8 @@ func (h *Handler) UpdateProfileHandler(w http.ResponseWriter, r *http.Request) e
 		u.WriteError(w, http.StatusBadRequest, "display name is required")
 		return nil
 	}
-	if len(name) > 25 {
-		u.WriteError(w, http.StatusBadRequest, "display name must be 25 characters or less")
+	if len(name) > maxDisplayNameLen {
+		u.WriteError(w, http.StatusBadRequest, fmt.Sprintf("display name must be %d characters or less", maxDisplayNameLen))
 		return nil
 	}
 

@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -99,7 +99,8 @@ func (r *R2Storage) FileExists(key string) (bool, error) {
 		Key:    aws.String(key),
 	})
 	if err != nil {
-		if strings.Contains(err.Error(), "NotFound") {
+		// ~~ HeadObject returns a RequestFailure with 404 when the key doesn't exist ~~
+		if reqErr, ok := err.(awserr.RequestFailure); ok && reqErr.StatusCode() == http.StatusNotFound {
 			return false, nil
 		}
 		return false, fmt.Errorf("failed to check file existence: %w", err)

@@ -3,7 +3,6 @@ package api
 import (
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -34,22 +33,6 @@ type Config struct {
 	FrontendURL        string
 }
 
-func ParsePagination(r *http.Request, defaultLimit, maxLimit int) (limit, offset int) {
-	limit = defaultLimit
-	offset = 0
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= maxLimit {
-			limit = v
-		}
-	}
-	if o := r.URL.Query().Get("offset"); o != "" {
-		if v, err := strconv.Atoi(o); err == nil && v >= 0 {
-			offset = v
-		}
-	}
-	return
-}
-
 type APIServer struct {
 	Config       Config
 	Store        store.GifStore
@@ -61,6 +44,7 @@ type APIServer struct {
 }
 
 func NewAPIServer(config Config, gifStore store.GifStore, r2Storage *storage.R2Storage) *APIServer {
+	config.CDNBaseURL = strings.TrimRight(config.CDNBaseURL, "/")
 	return &APIServer{
 		Config:    config,
 		Store:     gifStore,
@@ -86,7 +70,8 @@ func (s *APIServer) Run() {
 		}),
 	)
 
-	router.Use(middleware.Timeout(90 * time.Second))
+	const requestTimeout = 90 * time.Second
+	router.Use(middleware.Timeout(requestTimeout))
 
 	router.Mount("/", s.Routes())
 
