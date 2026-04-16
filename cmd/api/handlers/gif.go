@@ -16,9 +16,7 @@ func (h *Handler) ListActionsHandler(w http.ResponseWriter, r *http.Request) err
 	if err != nil {
 		return err
 	}
-	if actions == nil {
-		actions = []string{}
-	}
+	actions = u.OrEmpty(actions)
 	return u.WriteJSON(w, http.StatusOK, map[string]any{"actions": actions})
 }
 
@@ -34,9 +32,7 @@ func (h *Handler) CountGifsHandler(w http.ResponseWriter, r *http.Request) error
 	if err != nil {
 		return err
 	}
-	if byPairing == nil {
-		byPairing = []store.PairingCount{}
-	}
+	byPairing = u.OrEmpty(byPairing)
 
 	return u.WriteJSON(w, http.StatusOK, map[string]any{
 		"action":     action,

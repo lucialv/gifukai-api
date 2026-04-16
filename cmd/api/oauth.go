@@ -16,7 +16,10 @@ import (
 	u "github.com/lucialv/gifukai-api/pkg/utils"
 )
 
-const userSessionDuration = 30 * 24 * time.Hour
+const (
+	userSessionDuration = 30 * 24 * time.Hour
+	oauthStateTTL       = 10 * time.Minute
+)
 
 func (s *APIServer) generateUserToken(userID int64) (string, error) {
 	bytes := make([]byte, 32)
@@ -84,7 +87,7 @@ func (s *APIServer) githubAuthHandler(w http.ResponseWriter, r *http.Request) er
 	}
 
 	state := generateState()
-	s.oauthStates.Store(state, time.Now().Add(10*time.Minute))
+	s.oauthStates.Store(state, time.Now().Add(oauthStateTTL))
 
 	params := url.Values{
 		"client_id":    {s.Config.GitHubClientID},

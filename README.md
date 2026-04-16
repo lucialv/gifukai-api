@@ -1,4 +1,4 @@
-![Banner](./public/Banner.png)
+![Banner](./public/logo.svg)
 
 A free and open-source anime reaction GIF API :3
 
@@ -61,11 +61,11 @@ If no pairing is specified, a random GIF from any pairing will be returned.
 {
   "action": "pat",
   "pairing": "mf",
+  "anime": "Date A Live",
   "url": "https://cdn.gifukai.com/pat/f392b436-e889-4542-8b97-7b11c7d005f6.gif",
   "filename": "f392b436-e889-4542-8b97-7b11c7d005f6.gif",
   "content_type": "image/gif",
-  "size_bytes": 577909,
-  "anime_name": "Date A Live"
+  "size_bytes": 577909
 }
 ```
 

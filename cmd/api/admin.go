@@ -15,8 +15,6 @@ import (
 	"github.com/lucialv/gifukai-api/cmd/api/handlers"
 	"github.com/lucialv/gifukai-api/pkg/store"
 	u "github.com/lucialv/gifukai-api/pkg/utils"
-
-	"github.com/go-chi/chi/v5"
 )
 
 type adminGifItem struct {
@@ -30,18 +28,17 @@ type adminGifItem struct {
 	NSFW        bool    `json:"nsfw"`
 	Tags        string  `json:"tags,omitempty"`
 	AnimeID     *int64  `json:"anime_id,omitempty"`
-	AnimeName   *string `json:"anime_name,omitempty"`
+	AnimeName   *string `json:"anime,omitempty"`
 }
 
 func buildAdminGifItems(gifs []store.Gif, cdnBaseURL string) []adminGifItem {
-	cdnBase := strings.TrimRight(cdnBaseURL, "/")
 	items := make([]adminGifItem, 0, len(gifs))
 	for _, g := range gifs {
 		item := adminGifItem{
 			ID:          g.ID,
 			Action:      g.Action,
 			Pairing:     g.Pairing,
-			URL:         fmt.Sprintf("%s/%s", cdnBase, g.R2Key),
+			URL:         fmt.Sprintf("%s/%s", cdnBaseURL, g.R2Key),
 			Filename:    filepath.Base(g.R2Key),
 			ContentType: g.ContentType,
 			SizeBytes:   g.SizeBytes,
@@ -57,9 +54,10 @@ func buildAdminGifItems(gifs []store.Gif, cdnBaseURL string) []adminGifItem {
 	return items
 }
 
+const maxUploadSize = 2 << 20 // 2 MB
+
 func (s *APIServer) uploadGifHandler(w http.ResponseWriter, r *http.Request) error {
-	// Max 2MB
-	if err := r.ParseMultipartForm(2 << 20); err != nil {
+	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
 		u.WriteError(w, http.StatusBadRequest, "invalid multipart form: "+err.Error())
 		return nil
 	}
@@ -162,7 +160,7 @@ func (s *APIServer) listGifsHandler(w http.ResponseWriter, r *http.Request) erro
 	}
 
 	pairing := r.URL.Query().Get("pairing")
-	limit, offset := ParsePagination(r, 50, 200)
+	limit, offset := handlers.ParsePagination(r, 50, 200)
 
 	gifs, err := s.Store.GetGifsByActionAndPairing(action, pairing, limit, offset)
 	if err != nil {
@@ -179,7 +177,7 @@ func (s *APIServer) listGifsHandler(w http.ResponseWriter, r *http.Request) erro
 
 func (s *APIServer) listAllGifsHandler(w http.ResponseWriter, r *http.Request) error {
 	pairing := r.URL.Query().Get("pairing")
-	limit, offset := ParsePagination(r, 50, 200)
+	limit, offset := handlers.ParsePagination(r, 50, 200)
 
 	gifs, err := s.Store.ListAllGifs(pairing, limit, offset)
 	if err != nil {
@@ -197,9 +195,7 @@ func (s *APIServer) listAllGifsHandler(w http.ResponseWriter, r *http.Request) e
 	if err != nil {
 		return err
 	}
-	if byPairing == nil {
-		byPairing = []store.PairingCount{}
-	}
+	byPairing = u.OrEmpty(byPairing)
 
 	return u.WriteJSON(w, http.StatusOK, map[string]any{
 		"gifs":       items,
@@ -209,10 +205,8 @@ func (s *APIServer) listAllGifsHandler(w http.ResponseWriter, r *http.Request) e
 }
 
 func (s *APIServer) requireGif(w http.ResponseWriter, r *http.Request) (*store.Gif, error) {
-	idStr := chi.URLParam(r, "gifId")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		u.WriteError(w, http.StatusBadRequest, "invalid gif ID")
+	id, ok := handlers.ParseIDParam(w, r, "gifId", "gif ID")
+	if !ok {
 		return nil, nil
 	}
 
@@ -305,9 +299,7 @@ func (s *APIServer) listAnimesHandler(w http.ResponseWriter, r *http.Request) er
 	if err != nil {
 		return err
 	}
-	if animes == nil {
-		animes = []store.Anime{}
-	}
+	animes = u.OrEmpty(animes)
 	return u.WriteJSON(w, http.StatusOK, animes)
 }
 
@@ -333,10 +325,8 @@ func (s *APIServer) createAnimeHandler(w http.ResponseWriter, r *http.Request) e
 }
 
 func (s *APIServer) updateAnimeHandler(w http.ResponseWriter, r *http.Request) error {
-	idStr := chi.URLParam(r, "animeId")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		u.WriteError(w, http.StatusBadRequest, "invalid anime ID")
+	id, ok := handlers.ParseIDParam(w, r, "animeId", "anime ID")
+	if !ok {
 		return nil
 	}
 
@@ -360,10 +350,8 @@ func (s *APIServer) updateAnimeHandler(w http.ResponseWriter, r *http.Request) e
 }
 
 func (s *APIServer) deleteAnimeHandler(w http.ResponseWriter, r *http.Request) error {
-	idStr := chi.URLParam(r, "animeId")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		u.WriteError(w, http.StatusBadRequest, "invalid anime ID")
+	id, ok := handlers.ParseIDParam(w, r, "animeId", "anime ID")
+	if !ok {
 		return nil
 	}
 

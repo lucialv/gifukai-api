@@ -15,7 +15,7 @@ type Gif struct {
 	Tags        *string   `json:"tags,omitempty"`
 	NSFW        bool      `json:"nsfw"`
 	AnimeID     *int64    `json:"anime_id,omitempty"`
-	AnimeName   *string   `json:"anime_name,omitempty"`
+	AnimeName   *string   `json:"anime,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
@@ -216,6 +216,9 @@ func (s *SQLiteGifStore) GetAllActions() ([]string, error) {
 		}
 		actions = append(actions, a)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return actions, nil
 }
 
@@ -290,6 +293,9 @@ func (s *SQLiteGifStore) CountGifsByPairing(action string) ([]PairingCount, erro
 		}
 		counts = append(counts, pc)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return counts, nil
 }
 
@@ -308,6 +314,9 @@ func (s *SQLiteGifStore) RefreshIDPool(action, pairing string) ([]int64, error) 
 			return nil, err
 		}
 		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return ids, nil
 }
@@ -368,6 +377,9 @@ func (s *SQLiteGifStore) GetGifsByActionAndPairing(action, pairing string, limit
 		}
 		gifs = append(gifs, *g)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return gifs, nil
 }
 
@@ -412,6 +424,9 @@ func (s *SQLiteGifStore) ListAllGifs(pairing string, limit, offset int) ([]Gif, 
 		}
 		gifs = append(gifs, *g)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	return gifs, nil
 }
 
@@ -454,6 +469,9 @@ func (s *SQLiteGifStore) GetAllAnimes() ([]Anime, error) {
 			return nil, err
 		}
 		animes = append(animes, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return animes, nil
 }
@@ -511,6 +529,9 @@ func (s *SQLiteGifStore) ListPublicGifs(action, pairing, anime string, limit, of
 		}
 		gifs = append(gifs, *g)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
 	return gifs, total, nil
 }
 
@@ -529,6 +550,9 @@ func (s *SQLiteGifStore) ListPublicAnimes() ([]string, error) {
 			return nil, err
 		}
 		names = append(names, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return names, nil
 }
@@ -564,6 +588,9 @@ func (s *SQLiteGifStore) GetStats() (*Stats, error) {
 			return nil, err
 		}
 		stats.GifsByPairing = append(stats.GifsByPairing, pc)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	return &stats, nil

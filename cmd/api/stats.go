@@ -69,10 +69,7 @@ func (s *APIServer) statsHandler(w http.ResponseWriter, r *http.Request) error {
 		return nil
 	}
 
-	pairings := stats.GifsByPairing
-	if pairings == nil {
-		pairings = []store.PairingCount{}
-	}
+	pairings := u.OrEmpty(stats.GifsByPairing)
 
 	return u.WriteJSON(w, http.StatusOK, map[string]any{
 		"total_gifs":       stats.TotalGifs,

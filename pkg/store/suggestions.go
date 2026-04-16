@@ -51,6 +51,9 @@ func (s *SQLiteGifStore) ListSuggestions(status string, limit, offset int) ([]Su
 		}
 		suggestions = append(suggestions, *sg)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
 	return suggestions, total, nil
 }
 
@@ -119,6 +122,9 @@ func (s *SQLiteGifStore) ListUserSuggestions(userID int64, limit, offset int) ([
 			return nil, err
 		}
 		suggestions = append(suggestions, *sg)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return suggestions, nil
 }

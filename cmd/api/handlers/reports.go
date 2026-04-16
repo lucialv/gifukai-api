@@ -4,30 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
-	"strings"
 
 	"github.com/lucialv/gifukai-api/pkg/store"
 	u "github.com/lucialv/gifukai-api/pkg/utils"
-
-	"github.com/go-chi/chi/v5"
 )
 
-func parsePagination(r *http.Request, defaultLimit, maxLimit int) (limit, offset int) {
-	limit = defaultLimit
-	offset = 0
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= maxLimit {
-			limit = v
-		}
-	}
-	if o := r.URL.Query().Get("offset"); o != "" {
-		if v, err := strconv.Atoi(o); err == nil && v >= 0 {
-			offset = v
-		}
-	}
-	return
-}
+const maxReportDetailsLen = 500
 
 var validReasons = map[string]bool{
 	"Low quality gif":                  true,
@@ -62,8 +44,8 @@ func (h *Handler) CreateReportHandler(w http.ResponseWriter, r *http.Request) er
 			u.WriteError(w, http.StatusBadRequest, "details are required when reason is 'Other'")
 			return nil
 		}
-		if len(*body.Details) > 500 {
-			u.WriteError(w, http.StatusBadRequest, "details must be 500 characters or less")
+		if len(*body.Details) > maxReportDetailsLen {
+			u.WriteError(w, http.StatusBadRequest, fmt.Sprintf("details must be %d characters or less", maxReportDetailsLen))
 			return nil
 		}
 	}
@@ -102,23 +84,20 @@ func (h *Handler) CreateReportHandler(w http.ResponseWriter, r *http.Request) er
 
 func (h *Handler) ListReportsHandler(w http.ResponseWriter, r *http.Request) error {
 	status := r.URL.Query().Get("status")
-	limit, offset := parsePagination(r, 50, 200)
+	limit, offset := ParsePagination(r, 50, 200)
 
 	reports, total, err := h.Store.ListReports(status, limit, offset)
 	if err != nil {
 		return err
 	}
 
-	cdnBase := strings.TrimRight(h.CDNBaseURL, "/")
 	for i := range reports {
 		if reports[i].GifURL != nil {
-			url := fmt.Sprintf("%s/%s", cdnBase, *reports[i].GifURL)
+			url := fmt.Sprintf("%s/%s", h.CDNBaseURL, *reports[i].GifURL)
 			reports[i].GifURL = &url
 		}
 	}
-	if reports == nil {
-		reports = []store.Report{}
-	}
+	reports = u.OrEmpty(reports)
 
 	return u.WriteJSON(w, http.StatusOK, map[string]any{
 		"reports": reports,
@@ -127,10 +106,8 @@ func (h *Handler) ListReportsHandler(w http.ResponseWriter, r *http.Request) err
 }
 
 func (h *Handler) UpdateReportHandler(w http.ResponseWriter, r *http.Request) error {
-	idStr := chi.URLParam(r, "reportId")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		u.WriteError(w, http.StatusBadRequest, "invalid report ID")
+	id, ok := ParseIDParam(w, r, "reportId", "report ID")
+	if !ok {
 		return nil
 	}
 

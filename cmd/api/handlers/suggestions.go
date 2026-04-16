@@ -7,15 +7,12 @@ import (
 	"net/http"
 	"path"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gofrs/uuid"
 	"github.com/lucialv/gifukai-api/pkg/store"
 	u "github.com/lucialv/gifukai-api/pkg/utils"
-
-	"github.com/go-chi/chi/v5"
 )
 
 const maxSuggestionsPerDay = 15
@@ -124,12 +121,11 @@ type suggestionItem struct {
 }
 
 func (h *Handler) buildSuggestionItems(suggestions []store.Suggestion) []suggestionItem {
-	cdnBase := strings.TrimRight(h.CDNBaseURL, "/")
 	items := make([]suggestionItem, 0, len(suggestions))
 	for _, sg := range suggestions {
 		items = append(items, suggestionItem{
 			Suggestion: sg,
-			URL:        fmt.Sprintf("%s/%s", cdnBase, sg.FileKey),
+			URL:        fmt.Sprintf("%s/%s", h.CDNBaseURL, sg.FileKey),
 		})
 	}
 	return items
@@ -137,7 +133,7 @@ func (h *Handler) buildSuggestionItems(suggestions []store.Suggestion) []suggest
 
 func (h *Handler) ListUserSuggestionsHandler(w http.ResponseWriter, r *http.Request) error {
 	userID := GetUserID(r)
-	limit, offset := parsePagination(r, 50, 200)
+	limit, offset := ParsePagination(r, 50, 200)
 
 	suggestions, err := h.Store.ListUserSuggestions(userID, limit, offset)
 	if err != nil {
@@ -149,7 +145,7 @@ func (h *Handler) ListUserSuggestionsHandler(w http.ResponseWriter, r *http.Requ
 
 func (h *Handler) ListSuggestionsHandler(w http.ResponseWriter, r *http.Request) error {
 	status := r.URL.Query().Get("status")
-	limit, offset := parsePagination(r, 50, 200)
+	limit, offset := ParsePagination(r, 50, 200)
 
 	suggestions, total, err := h.Store.ListSuggestions(status, limit, offset)
 	if err != nil {
@@ -163,10 +159,8 @@ func (h *Handler) ListSuggestionsHandler(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) ApproveSuggestionHandler(w http.ResponseWriter, r *http.Request) error {
-	idStr := chi.URLParam(r, "suggestionId")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		u.WriteError(w, http.StatusBadRequest, "invalid suggestion ID")
+	id, ok := ParseIDParam(w, r, "suggestionId", "suggestion ID")
+	if !ok {
 		return nil
 	}
 
@@ -257,10 +251,8 @@ func (h *Handler) ApproveSuggestionHandler(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) RejectSuggestionHandler(w http.ResponseWriter, r *http.Request) error {
-	idStr := chi.URLParam(r, "suggestionId")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		u.WriteError(w, http.StatusBadRequest, "invalid suggestion ID")
+	id, ok := ParseIDParam(w, r, "suggestionId", "suggestion ID")
+	if !ok {
 		return nil
 	}
 

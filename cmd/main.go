@@ -15,6 +15,11 @@ import (
 	_ "github.com/tursodatabase/libsql-client-go/libsql"
 )
 
+const (
+	cacheRefreshInterval = 12 * time.Hour
+	statsRefreshInterval = 2 * time.Hour
+)
+
 func main() {
 	if os.Getenv("ENV") != "production" {
 		env.Load()
@@ -46,7 +51,7 @@ func main() {
 		FrontendURL:        env.GetString("FRONTEND_URL", "https://gifukai.com"),
 	}
 
-	gifStore, err := store.NewGifStore(
+	sqlStore, err := store.NewGifStore(
 		env.GetString("TURSO_DATABASE_URL", ""),
 		env.GetString("TURSO_AUTH_TOKEN", ""),
 	)
@@ -55,6 +60,12 @@ func main() {
 	}
 	log.Println("Connected to Turso database")
 
+	gifStore, err := store.NewCachedGifStore(sqlStore)
+	if err != nil {
+		log.Fatalf("Failed to initialize GIF cache: %v", err)
+	}
+	gifStore.StartRefreshWorker(cacheRefreshInterval)
+
 	r2Storage, err := storage.NewR2Storage(cfg.R2)
 	if err != nil {
 		log.Fatalf("Failed to initialize R2 storage: %v", err)
@@ -62,6 +73,6 @@ func main() {
 	log.Println("Connected to Cloudflare R2")
 
 	server := api.NewAPIServer(cfg, gifStore, r2Storage)
-	server.StartStatsWorker(2 * time.Hour)
+	server.StartStatsWorker(statsRefreshInterval)
 	server.Run()
 }

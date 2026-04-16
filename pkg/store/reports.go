@@ -48,6 +48,9 @@ func (s *SQLiteGifStore) ListReports(status string, limit, offset int) ([]Report
 		}
 		reports = append(reports, r)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
 	return reports, total, nil
 }
 

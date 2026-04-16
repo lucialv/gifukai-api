@@ -14,6 +14,8 @@ import (
 
 // ~~ admin auth ~~
 
+const adminSessionDuration = 24 * time.Hour
+
 type session struct {
 	ExpiresAt time.Time
 }
@@ -78,7 +80,7 @@ func (s *APIServer) loginHandler(w http.ResponseWriter, r *http.Request) error {
 	token := hex.EncodeToString(bytes)
 
 	s.sessions.Store(token, session{
-		ExpiresAt: time.Now().Add(24 * time.Hour),
+		ExpiresAt: time.Now().Add(adminSessionDuration),
 	})
 
 	return u.WriteJSON(w, http.StatusOK, map[string]string{
