@@ -54,7 +54,7 @@ func buildAdminGifItems(gifs []store.Gif, cdnBaseURL string) []adminGifItem {
 	return items
 }
 
-const maxUploadSize = 2 << 20 // 2 MB
+const maxUploadSize = 15 << 20 // 15 MB
 
 func (s *APIServer) uploadGifHandler(w http.ResponseWriter, r *http.Request) error {
 	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
