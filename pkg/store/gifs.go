@@ -20,8 +20,9 @@ type Gif struct {
 }
 
 type Anime struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	GifCount int    `json:"gif_count"`
 }
 
 type PairingCount struct {
@@ -456,7 +457,13 @@ func (s *SQLiteGifStore) CreateAnime(anime *Anime) error {
 }
 
 func (s *SQLiteGifStore) GetAllAnimes() ([]Anime, error) {
-	rows, err := s.db.Query(`SELECT id, name FROM animes ORDER BY name`)
+	rows, err := s.db.Query(`
+		SELECT a.id, a.name, COUNT(g.id) AS gif_count
+		FROM animes a
+		LEFT JOIN gifs g ON g.anime_id = a.id
+		GROUP BY a.id, a.name
+		ORDER BY a.name
+	`)
 	if err != nil {
 		return nil, err
 	}
@@ -465,7 +472,7 @@ func (s *SQLiteGifStore) GetAllAnimes() ([]Anime, error) {
 	var animes []Anime
 	for rows.Next() {
 		var a Anime
-		if err := rows.Scan(&a.ID, &a.Name); err != nil {
+		if err := rows.Scan(&a.ID, &a.Name, &a.GifCount); err != nil {
 			return nil, err
 		}
 		animes = append(animes, a)
