@@ -35,13 +35,24 @@ func (h *Handler) CreateSuggestionHandler(w http.ResponseWriter, r *http.Request
 		return nil
 	}
 
-	action := strings.ToLower(r.FormValue("action"))
-	pairing := strings.ToLower(r.FormValue("pairing"))
+	policy, badRequest, err := ResolveActionTypePolicy(h.Store, r.FormValue("action"), r.FormValue("type"), false)
+	if err != nil {
+		return err
+	}
+	if badRequest != "" {
+		u.WriteError(w, http.StatusBadRequest, badRequest)
+		return nil
+	}
 
-	if action == "" {
+	if policy.Action == "" {
 		u.WriteError(w, http.StatusBadRequest, "action is required")
 		return nil
 	}
+	if msg := RequireTypeForTypedAction(policy); msg != "" {
+		u.WriteError(w, http.StatusBadRequest, msg)
+		return nil
+	}
+	pairing := NormalizePairing(r.FormValue("pairing"))
 	if !ValidPairings[pairing] {
 		u.WriteError(w, http.StatusBadRequest, fmt.Sprintf("invalid pairing: %s", pairing))
 		return nil
@@ -98,10 +109,13 @@ func (h *Handler) CreateSuggestionHandler(w http.ResponseWriter, r *http.Request
 		FileKey:     fileKey,
 		ContentType: contentType,
 		SizeBytes:   int64(len(data)),
-		Action:      action,
+		Action:      policy.Action,
 		Pairing:     pairing,
 		Status:      "pending",
 		Anime:       &anime,
+	}
+	if policy.Type != "" {
+		suggestion.Variant = &policy.Type
 	}
 	if tags := r.FormValue("tags"); tags != "" {
 		suggestion.Tags = &tags
@@ -177,6 +191,27 @@ func (h *Handler) ApproveSuggestionHandler(w http.ResponseWriter, r *http.Reques
 		return nil
 	}
 
+	action := NormalizeAction(suggestion.Action)
+	hasTypes, err := h.Store.ActionHasTypes(action)
+	if err != nil {
+		return err
+	}
+	var normalizedVariant *string
+	if suggestion.Variant != nil {
+		t, err := NormalizeGifType(*suggestion.Variant)
+		if err != nil {
+			u.WriteError(w, http.StatusBadRequest, err.Error())
+			return nil
+		}
+		if t != "" {
+			normalizedVariant = &t
+		}
+	}
+	if hasTypes && normalizedVariant == nil {
+		u.WriteError(w, http.StatusBadRequest, fmt.Sprintf("type is required for action: %s", action))
+		return nil
+	}
+
 	// Optional body: admin can override the anime_id
 	var body struct {
 		AnimeID *int64 `json:"anime_id"`
@@ -196,14 +231,15 @@ func (h *Handler) ApproveSuggestionHandler(w http.ResponseWriter, r *http.Reques
 	if ext == "" {
 		ext = ".gif"
 	}
-	r2Key := fmt.Sprintf("%s/%s%s", suggestion.Action, newID.String(), ext)
+	r2Key := fmt.Sprintf("%s/%s%s", action, newID.String(), ext)
 
 	if err := h.R2Storage.UploadFile(r2Key, data, suggestion.ContentType); err != nil {
 		return fmt.Errorf("failed to upload to production: %w", err)
 	}
 
 	gif := &store.Gif{
-		Action:      suggestion.Action,
+		Action:      action,
+		Variant:     normalizedVariant,
 		Pairing:     suggestion.Pairing,
 		R2Key:       r2Key,
 		ContentType: suggestion.ContentType,
@@ -243,10 +279,16 @@ func (h *Handler) ApproveSuggestionHandler(w http.ResponseWriter, r *http.Reques
 		return fmt.Errorf("failed to update suggestion status: %w", err)
 	}
 	_ = h.R2Storage.DeleteFile(suggestion.FileKey)
+	hasTypesAfter, err := h.Store.ActionHasTypes(action)
+	if err != nil {
+		return err
+	}
+	resp := h.buildGifResponse(gif)
+	HideVariantIfUntyped(&resp, hasTypesAfter)
 
 	return u.WriteJSON(w, http.StatusOK, map[string]any{
 		"status": "approved",
-		"gif":    h.buildGifResponse(gif),
+		"gif":    resp,
 	})
 }
 

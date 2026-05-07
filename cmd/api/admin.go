@@ -20,6 +20,7 @@ import (
 type adminGifItem struct {
 	ID          int64   `json:"id"`
 	Action      string  `json:"action"`
+	Variant     *string `json:"type,omitempty"`
 	Pairing     string  `json:"pairing"`
 	URL         string  `json:"url"`
 	Filename    string  `json:"filename"`
@@ -37,14 +38,15 @@ func buildAdminGifItems(gifs []store.Gif, cdnBaseURL string) []adminGifItem {
 		item := adminGifItem{
 			ID:          g.ID,
 			Action:      g.Action,
+			Variant:     g.Variant,
 			Pairing:     g.Pairing,
+			AnimeName:   g.AnimeName,
 			URL:         fmt.Sprintf("%s/%s", cdnBaseURL, g.R2Key),
 			Filename:    filepath.Base(g.R2Key),
 			ContentType: g.ContentType,
 			SizeBytes:   g.SizeBytes,
 			NSFW:        g.NSFW,
 			AnimeID:     g.AnimeID,
-			AnimeName:   g.AnimeName,
 		}
 		if g.Tags != nil {
 			item.Tags = *g.Tags
@@ -62,13 +64,25 @@ func (s *APIServer) uploadGifHandler(w http.ResponseWriter, r *http.Request) err
 		return nil
 	}
 
-	action := strings.ToLower(r.FormValue("action"))
-	pairing := strings.ToLower(r.FormValue("pairing"))
+	policy, badRequest, err := handlers.ResolveActionTypePolicy(s.Store, r.FormValue("action"), r.FormValue("type"), false)
+	if err != nil {
+		return err
+	}
+	if badRequest != "" {
+		u.WriteError(w, http.StatusBadRequest, badRequest)
+		return nil
+	}
+
+	pairing := handlers.NormalizePairing(r.FormValue("pairing"))
 	tags := r.FormValue("tags")
 	nsfwStr := r.FormValue("nsfw")
 
-	if action == "" {
+	if policy.Action == "" {
 		u.WriteError(w, http.StatusBadRequest, "action is required")
+		return nil
+	}
+	if msg := handlers.RequireTypeForTypedAction(policy); msg != "" {
+		u.WriteError(w, http.StatusBadRequest, msg)
 		return nil
 	}
 	if !handlers.ValidPairings[pairing] {
@@ -103,20 +117,23 @@ func (s *APIServer) uploadGifHandler(w http.ResponseWriter, r *http.Request) err
 	if ext == "" {
 		ext = ".gif"
 	}
-	r2Key := fmt.Sprintf("%s/%s%s", action, id.String(), ext)
+	r2Key := fmt.Sprintf("%s/%s%s", policy.Action, id.String(), ext)
 
 	if err := s.R2Storage.UploadFile(r2Key, data, contentType); err != nil {
 		return fmt.Errorf("failed to upload to R2: %w", err)
 	}
 
 	gif := &store.Gif{
-		Action:      action,
+		Action:      policy.Action,
 		Pairing:     pairing,
 		R2Key:       r2Key,
 		ContentType: contentType,
 		SizeBytes:   int64(len(data)),
 		NSFW:        nsfw,
 		CreatedAt:   time.Now().UTC(),
+	}
+	if policy.Type != "" {
+		gif.Variant = &policy.Type
 	}
 	if tags != "" {
 		gif.Tags = &tags
@@ -131,8 +148,14 @@ func (s *APIServer) uploadGifHandler(w http.ResponseWriter, r *http.Request) err
 		_ = s.R2Storage.DeleteFile(r2Key)
 		return fmt.Errorf("failed to create gif record: %w", err)
 	}
+	hasTypes, err := s.Store.ActionHasTypes(policy.Action)
+	if err != nil {
+		return err
+	}
+	resp := handlers.BuildGifResponse(gif, s.Config.CDNBaseURL)
+	handlers.HideVariantIfUntyped(&resp, hasTypes)
 
-	return u.WriteJSON(w, http.StatusCreated, handlers.BuildGifResponse(gif, s.Config.CDNBaseURL))
+	return u.WriteJSON(w, http.StatusCreated, resp)
 }
 
 func (s *APIServer) deleteGifHandler(w http.ResponseWriter, r *http.Request) error {
@@ -153,30 +176,44 @@ func (s *APIServer) deleteGifHandler(w http.ResponseWriter, r *http.Request) err
 }
 
 func (s *APIServer) listGifsHandler(w http.ResponseWriter, r *http.Request) error {
-	action := r.URL.Query().Get("action")
-	if action == "" {
+	policy, badRequest, err := handlers.ResolveActionTypePolicy(s.Store, r.URL.Query().Get("action"), r.URL.Query().Get("type"), false)
+	if err != nil {
+		return err
+	}
+	if badRequest != "" {
+		u.WriteError(w, http.StatusBadRequest, badRequest)
+		return nil
+	}
+	if policy.Action == "" {
 		u.WriteError(w, http.StatusBadRequest, "action query param is required")
 		return nil
 	}
 
-	pairing := r.URL.Query().Get("pairing")
+	pairing := handlers.NormalizePairing(r.URL.Query().Get("pairing"))
 	limit, offset := handlers.ParsePagination(r, 50, 200)
 
-	gifs, err := s.Store.GetGifsByActionAndPairing(action, pairing, limit, offset)
+	gifs, err := s.Store.GetGifsByActionAndPairing(policy.Action, pairing, policy.Type, limit, offset)
 	if err != nil {
 		return err
 	}
 
 	items := buildAdminGifItems(gifs, s.Config.CDNBaseURL)
 
-	return u.WriteJSON(w, http.StatusOK, map[string]any{
-		"gifs":  items,
-		"count": len(items),
-	})
+	response := map[string]any{
+		"action":    policy.Action,
+		"has_types": policy.HasTypes,
+		"gifs":      items,
+		"count":     len(items),
+	}
+	if policy.Type != "" {
+		response["type"] = policy.Type
+	}
+
+	return u.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *APIServer) listAllGifsHandler(w http.ResponseWriter, r *http.Request) error {
-	pairing := r.URL.Query().Get("pairing")
+	pairing := handlers.NormalizePairing(r.URL.Query().Get("pairing"))
 	limit, offset := handlers.ParsePagination(r, 50, 200)
 
 	gifs, err := s.Store.ListAllGifs(pairing, limit, offset)
@@ -191,7 +228,7 @@ func (s *APIServer) listAllGifsHandler(w http.ResponseWriter, r *http.Request) e
 
 	items := buildAdminGifItems(gifs, s.Config.CDNBaseURL)
 
-	byPairing, err := s.Store.CountGifsByPairing("")
+	byPairing, err := s.Store.CountGifsByPairing("", "")
 	if err != nil {
 		return err
 	}
@@ -268,6 +305,48 @@ func (s *APIServer) updateGifPairingHandler(w http.ResponseWriter, r *http.Reque
 
 	if err := s.Store.UpdateGifPairing(gif.ID, body.Pairing); err != nil {
 		return fmt.Errorf("failed to update pairing: %w", err)
+	}
+
+	return u.WriteJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (s *APIServer) updateGifTypeHandler(w http.ResponseWriter, r *http.Request) error {
+	gif, err := s.requireGif(w, r)
+	if gif == nil || err != nil {
+		return err
+	}
+
+	var body struct {
+		Type *string `json:"type"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		u.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return nil
+	}
+
+	var variant *string
+	if body.Type != nil {
+		normalized, err := handlers.NormalizeGifType(*body.Type)
+		if err != nil {
+			u.WriteError(w, http.StatusBadRequest, err.Error())
+			return nil
+		}
+		if normalized != "" {
+			variant = &normalized
+		}
+	}
+
+	hasTypes, err := s.Store.ActionHasTypes(gif.Action)
+	if err != nil {
+		return err
+	}
+	if hasTypes && variant == nil {
+		u.WriteError(w, http.StatusBadRequest, fmt.Sprintf("type is required for action: %s", gif.Action))
+		return nil
+	}
+
+	if err := s.Store.UpdateGifVariant(gif.ID, variant); err != nil {
+		return fmt.Errorf("failed to update type: %w", err)
 	}
 
 	return u.WriteJSON(w, http.StatusOK, map[string]string{"status": "updated"})

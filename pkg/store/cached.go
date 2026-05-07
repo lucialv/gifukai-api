@@ -9,12 +9,13 @@ import (
 )
 
 type cachedData struct {
-	gifs     []Gif
-	byID     map[int64]*Gif
-	byAction map[string][]*Gif
-	actions  []string
-	animes   []Anime
-	stats    Stats
+	gifs        []Gif
+	byID        map[int64]*Gif
+	byAction    map[string][]*Gif
+	actionTypes map[string][]string
+	actions     []string
+	animes      []Anime
+	stats       Stats
 }
 
 type CachedGifStore struct {
@@ -54,13 +55,15 @@ func (c *CachedGifStore) Reload() error {
 	}
 
 	d := &cachedData{
-		gifs:     gifs,
-		byID:     make(map[int64]*Gif, len(gifs)),
-		byAction: make(map[string][]*Gif),
-		animes:   animes,
+		gifs:        gifs,
+		byID:        make(map[int64]*Gif, len(gifs)),
+		byAction:    make(map[string][]*Gif),
+		actionTypes: make(map[string][]string),
+		animes:      animes,
 	}
 
-	actionSet := make(map[string]struct{})
+	typeSets := make(map[string]map[string]struct{})
+	hasUntyped := make(map[string]bool)
 	var totalBytes int64
 	pairingCounts := make(map[string]int)
 
@@ -68,14 +71,29 @@ func (c *CachedGifStore) Reload() error {
 		g := &d.gifs[i]
 		d.byID[g.ID] = g
 		d.byAction[g.Action] = append(d.byAction[g.Action], g)
-		actionSet[g.Action] = struct{}{}
+		if g.Variant != nil && *g.Variant != "" {
+			if _, ok := typeSets[g.Action]; !ok {
+				typeSets[g.Action] = make(map[string]struct{})
+			}
+			typeSets[g.Action][*g.Variant] = struct{}{}
+		} else {
+			hasUntyped[g.Action] = true
+		}
 		totalBytes += g.SizeBytes
 		pairingCounts[g.Pairing]++
 	}
 
-	d.actions = make([]string, 0, len(actionSet))
-	for a := range actionSet {
+	d.actions = make([]string, 0, len(d.byAction))
+	for a := range d.byAction {
 		d.actions = append(d.actions, a)
+		if !hasUntyped[a] && len(typeSets[a]) > 0 {
+			types := make([]string, 0, len(typeSets[a]))
+			for t := range typeSets[a] {
+				types = append(types, t)
+			}
+			sort.Strings(types)
+			d.actionTypes[a] = types
+		}
 	}
 	sort.Strings(d.actions)
 
@@ -108,7 +126,7 @@ func (c *CachedGifStore) reloadQuiet() {
 
 // ~~ GIFs ~~
 
-func (c *CachedGifStore) GetRandomGif(action, pairing string, nsfw *bool) (*Gif, error) {
+func (c *CachedGifStore) GetRandomGif(action, pairing, variant string, nsfw *bool) (*Gif, error) {
 	d := c.data.Load()
 	candidates := d.byAction[action]
 	if len(candidates) == 0 {
@@ -117,6 +135,9 @@ func (c *CachedGifStore) GetRandomGif(action, pairing string, nsfw *bool) (*Gif,
 
 	var filtered []*Gif
 	for _, g := range candidates {
+		if variant != "" && (g.Variant == nil || *g.Variant != variant) {
+			continue
+		}
 		if pairing != "" && g.Pairing != pairing {
 			continue
 		}
@@ -133,8 +154,8 @@ func (c *CachedGifStore) GetRandomGif(action, pairing string, nsfw *bool) (*Gif,
 	return &picked, nil
 }
 
-func (c *CachedGifStore) GetRandomGifAnyPairing(action string, nsfw *bool) (*Gif, error) {
-	return c.GetRandomGif(action, "", nsfw)
+func (c *CachedGifStore) GetRandomGifAnyPairing(action, variant string, nsfw *bool) (*Gif, error) {
+	return c.GetRandomGif(action, "", variant, nsfw)
 }
 
 func (c *CachedGifStore) GetAllActions() ([]string, error) {
@@ -142,6 +163,40 @@ func (c *CachedGifStore) GetAllActions() ([]string, error) {
 	out := make([]string, len(d.actions))
 	copy(out, d.actions)
 	return out, nil
+}
+
+func (c *CachedGifStore) ActionHasTypes(action string) (bool, error) {
+	d := c.data.Load()
+	return len(d.actionTypes[action]) > 0, nil
+}
+
+func (c *CachedGifStore) GetActionTypes(action string) ([]string, bool, error) {
+	d := c.data.Load()
+	types := d.actionTypes[action]
+	if len(types) == 0 {
+		return []string{}, false, nil
+	}
+	out := make([]string, len(types))
+	copy(out, types)
+	return out, true, nil
+}
+
+func (c *CachedGifStore) ListActionVariants(action string) ([]string, error) {
+	d := c.data.Load()
+	set := make(map[string]struct{})
+	for _, g := range d.byAction[action] {
+		if g.Variant == nil || *g.Variant == "" {
+			continue
+		}
+		set[*g.Variant] = struct{}{}
+	}
+
+	variants := make([]string, 0, len(set))
+	for v := range set {
+		variants = append(variants, v)
+	}
+	sort.Strings(variants)
+	return variants, nil
 }
 
 func (c *CachedGifStore) GetGifByID(id int64) (*Gif, error) {
@@ -153,12 +208,15 @@ func (c *CachedGifStore) GetGifByID(id int64) (*Gif, error) {
 	return nil, nil
 }
 
-func (c *CachedGifStore) GetGifsByActionAndPairing(action, pairing string, limit, offset int) ([]Gif, error) {
+func (c *CachedGifStore) GetGifsByActionAndPairing(action, pairing, variant string, limit, offset int) ([]Gif, error) {
 	d := c.data.Load()
 	candidates := d.byAction[action]
 
 	var filtered []*Gif
 	for _, g := range candidates {
+		if variant != "" && (g.Variant == nil || *g.Variant != variant) {
+			continue
+		}
 		if pairing != "" && g.Pairing != pairing {
 			continue
 		}
@@ -177,11 +235,14 @@ func (c *CachedGifStore) GetGifsByActionAndPairing(action, pairing string, limit
 	return result, nil
 }
 
-func (c *CachedGifStore) CountGifs(action, pairing string) (int, error) {
+func (c *CachedGifStore) CountGifs(action, pairing, variant string) (int, error) {
 	d := c.data.Load()
 	count := 0
 	for i := range d.gifs {
 		if action != "" && d.gifs[i].Action != action {
+			continue
+		}
+		if variant != "" && (d.gifs[i].Variant == nil || *d.gifs[i].Variant != variant) {
 			continue
 		}
 		if pairing != "" && d.gifs[i].Pairing != pairing {
@@ -192,11 +253,14 @@ func (c *CachedGifStore) CountGifs(action, pairing string) (int, error) {
 	return count, nil
 }
 
-func (c *CachedGifStore) CountGifsByPairing(action string) ([]PairingCount, error) {
+func (c *CachedGifStore) CountGifsByPairing(action, variant string) ([]PairingCount, error) {
 	d := c.data.Load()
 	counts := make(map[string]int)
 	for i := range d.gifs {
 		if action != "" && d.gifs[i].Action != action {
+			continue
+		}
+		if variant != "" && (d.gifs[i].Variant == nil || *d.gifs[i].Variant != variant) {
 			continue
 		}
 		counts[d.gifs[i].Pairing]++
@@ -212,15 +276,42 @@ func (c *CachedGifStore) CountGifsByPairing(action string) ([]PairingCount, erro
 	return result, nil
 }
 
-func (c *CachedGifStore) RefreshIDPool(action, pairing string) ([]int64, error) {
+func (c *CachedGifStore) GetActionPairingCounts() ([]ActionPairingCount, error) {
 	d := c.data.Load()
-	var ids []int64
+
+	countsByAction := make(map[string]map[string]int)
 	for i := range d.gifs {
-		if d.gifs[i].Action == action && d.gifs[i].Pairing == pairing {
-			ids = append(ids, d.gifs[i].ID)
+		action := d.gifs[i].Action
+		if _, ok := countsByAction[action]; !ok {
+			countsByAction[action] = make(map[string]int)
+		}
+		countsByAction[action][d.gifs[i].Pairing]++
+	}
+
+	actions := make([]string, 0, len(countsByAction))
+	for action := range countsByAction {
+		actions = append(actions, action)
+	}
+	sort.Strings(actions)
+
+	result := make([]ActionPairingCount, 0)
+	for _, action := range actions {
+		pairings := make([]string, 0, len(countsByAction[action]))
+		for pairing := range countsByAction[action] {
+			pairings = append(pairings, pairing)
+		}
+		sort.Strings(pairings)
+
+		for _, pairing := range pairings {
+			result = append(result, ActionPairingCount{
+				Action:  action,
+				Pairing: pairing,
+				Count:   countsByAction[action][pairing],
+			})
 		}
 	}
-	return ids, nil
+
+	return result, nil
 }
 
 func (c *CachedGifStore) ListAllGifs(pairing string, limit, offset int) ([]Gif, error) {
@@ -278,7 +369,7 @@ func (c *CachedGifStore) GetAllAnimes() ([]Anime, error) {
 
 // ~~ Public library ~~
 
-func (c *CachedGifStore) ListPublicGifs(action, pairing, anime string, limit, offset int) ([]Gif, int, error) {
+func (c *CachedGifStore) ListPublicGifs(action, pairing, anime, variant string, limit, offset int) ([]Gif, int, error) {
 	d := c.data.Load()
 
 	var filtered []Gif
@@ -288,6 +379,9 @@ func (c *CachedGifStore) ListPublicGifs(action, pairing, anime string, limit, of
 			continue
 		}
 		if action != "" && g.Action != action {
+			continue
+		}
+		if variant != "" && (g.Variant == nil || *g.Variant != variant) {
 			continue
 		}
 		if pairing != "" && g.Pairing != pairing {
@@ -325,7 +419,7 @@ func (c *CachedGifStore) ListPublicAnimes() ([]string, error) {
 	return names, nil
 }
 
-// ~~ Write methods ~~ 
+// ~~ Write methods ~~
 // These all pass through to the inner store, then trigger a cache reload on success ^^
 
 func (c *CachedGifStore) CreateGif(gif *Gif) error {
@@ -354,6 +448,14 @@ func (c *CachedGifStore) UpdateGifTags(id int64, tags *string) error {
 
 func (c *CachedGifStore) UpdateGifPairing(id int64, pairing string) error {
 	if err := c.inner.UpdateGifPairing(id, pairing); err != nil {
+		return err
+	}
+	c.reloadQuiet()
+	return nil
+}
+
+func (c *CachedGifStore) UpdateGifVariant(id int64, variant *string) error {
+	if err := c.inner.UpdateGifVariant(id, variant); err != nil {
 		return err
 	}
 	c.reloadQuiet()
