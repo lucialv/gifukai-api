@@ -6,7 +6,7 @@ Every GIF is hand-picked and curated for quality: good resolution, nearly 16:9 a
 
 GIFs are stored on Cloudflare R2 and served via `cdn.gifukai.com`. The API is built with Go and uses Turso (libSQL) as the database.
 
-Full documentation coming soon at [gifukai.com](https://gifukai.com).
+Full documentation available at [gifukai.com](https://gifukai.com/getting-started/introduction).
 
 ## How to use
 
@@ -27,6 +27,7 @@ Returns a random GIF for the given action. No API key, no signup, no rate limits
 | `sleep` | https://api.gifukai.com/sleep |
 
 You can get the full list of actions from `GET /actions`
+(`actions_with_types` is included so clients can see `has_types` per action).
 
 ## Pairing filter
 
@@ -43,11 +44,27 @@ You can filter GIFs by pairing type using the `pairing` query parameter. The fir
 
 If no pairing is specified, a random GIF from any pairing will be returned.
 
+## Type filter
+
+You can optionally filter GIFs by a generic `type` query parameter:
+
+| Example                                    | Description             |
+| ------------------------------------------ | ----------------------- |
+| https://api.gifukai.com/kiss?type=mouth    | Only mouth kiss GIFs    |
+| https://api.gifukai.com/kiss?type=cheek    | Only cheek kiss GIFs    |
+| https://api.gifukai.com/kiss?type=forehead | Only forehead kiss GIFs |
+| https://api.gifukai.com/kiss               | All kiss GIFs           |
+
+When `type` is provided, only GIFs with that exact type are returned.
+Type filtering is available only for actions where every GIF is typed.
+Check documentation at [gifukai.com](https://gifukai.com/endpoints/action-types/) for which actions support type filtering.
+
 ## Other endpoints
 
 | Endpoint                      | Description                                           |
 | ----------------------------- | ----------------------------------------------------- |
 | `GET /actions`                | List all available actions                            |
+| `GET /actions/{action}/types` | Check whether an action supports type filtering       |
 | `GET /actions/{action}/count` | Count GIFs for an action (with per-pairing breakdown) |
 | `GET /stats`                  | Total GIFs, actions, animes and size                  |
 | `GET /library`                | Browse GIFs with filters (action, pairing, anime)     |
@@ -55,18 +72,21 @@ If no pairing is specified, a random GIF from any pairing will be returned.
 
 ## Example response
 
-`GET /pat`
+`GET /kiss?type=cheek&pairing=fm` might return:
 
 ```json
 {
-  "action": "pat",
-  "pairing": "mf",
-  "anime": "Date A Live",
-  "url": "https://cdn.gifukai.com/pat/f392b436-e889-4542-8b97-7b11c7d005f6.gif",
-  "filename": "f392b436-e889-4542-8b97-7b11c7d005f6.gif",
+  "action": "kiss",
+  "type": "cheek",
+  "pairing": "fm",
+  "anime": "Tsuredure Children",
+  "url": "https://cdn.gifukai.com/kiss/52e7fa7d-b873-4e78-a6aa-eb1118c5281c.gif",
+  "filename": "52e7fa7d-b873-4e78-a6aa-eb1118c5281c.gif",
   "content_type": "image/gif",
-  "size_bytes": 577909
+  "size_bytes": 4201101
 }
 ```
+
+`type` is optional and only appears in the response when that action is fully typed.
 
 Thank you for using the API! If you have any suggestions, please let me know :3

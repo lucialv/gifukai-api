@@ -2,12 +2,14 @@ package store
 
 import (
 	"database/sql"
+	"strings"
 	"time"
 )
 
 type Gif struct {
 	ID          int64     `json:"id"`
 	Action      string    `json:"action"`
+	Variant     *string   `json:"type,omitempty"`
 	Pairing     string    `json:"pairing"`
 	R2Key       string    `json:"r2_key"`
 	ContentType string    `json:"content_type"`
@@ -26,6 +28,12 @@ type Anime struct {
 }
 
 type PairingCount struct {
+	Pairing string `json:"pairing"`
+	Count   int    `json:"count"`
+}
+
+type ActionPairingCount struct {
+	Action  string `json:"action"`
 	Pairing string `json:"pairing"`
 	Count   int    `json:"count"`
 }
@@ -63,9 +71,9 @@ type Report struct {
 	Details   *string   `json:"details,omitempty"`
 	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"created_at"`
-	UserName  *string  `json:"user_name,omitempty"`  // joined
-	GifURL    *string  `json:"gif_url,omitempty"`    // joined
-	GifAction *string  `json:"gif_action,omitempty"` // joined
+	UserName  *string   `json:"user_name,omitempty"`  // joined
+	GifURL    *string   `json:"gif_url,omitempty"`    // joined
+	GifAction *string   `json:"gif_action,omitempty"` // joined
 }
 
 type Suggestion struct {
@@ -75,28 +83,33 @@ type Suggestion struct {
 	ContentType string    `json:"content_type"`
 	SizeBytes   int64     `json:"size_bytes"`
 	Action      string    `json:"action"`
+	Variant     *string   `json:"type,omitempty"`
 	Pairing     string    `json:"pairing"`
 	Anime       *string   `json:"anime,omitempty"`
 	Tags        *string   `json:"tags,omitempty"`
 	Status      string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	UserName  *string  `json:"user_name,omitempty"` // joined
+	CreatedAt   time.Time `json:"created_at"`
+	UserName    *string   `json:"user_name,omitempty"` // joined
 }
 
 type GifStore interface {
 	// ~~ gifs ~~
-	GetRandomGif(action, pairing string, nsfw *bool) (*Gif, error)
-	GetRandomGifAnyPairing(action string, nsfw *bool) (*Gif, error)
-	GetGifsByActionAndPairing(action, pairing string, limit, offset int) ([]Gif, error)
+	GetRandomGif(action, pairing, variant string, nsfw *bool) (*Gif, error)
+	GetRandomGifAnyPairing(action, variant string, nsfw *bool) (*Gif, error)
+	GetGifsByActionAndPairing(action, pairing, variant string, limit, offset int) ([]Gif, error)
 	GetAllActions() ([]string, error)
+	ActionHasTypes(action string) (bool, error)
+	GetActionTypes(action string) ([]string, bool, error)
+	ListActionVariants(action string) ([]string, error)
 	CreateGif(gif *Gif) error
 	DeleteGif(id int64) error
 	GetGifByID(id int64) (*Gif, error)
-	CountGifs(action, pairing string) (int, error)
-	CountGifsByPairing(action string) ([]PairingCount, error)
-	RefreshIDPool(action, pairing string) ([]int64, error)
+	CountGifs(action, pairing, variant string) (int, error)
+	CountGifsByPairing(action, variant string) ([]PairingCount, error)
+	GetActionPairingCounts() ([]ActionPairingCount, error)
 	UpdateGifTags(id int64, tags *string) error
 	UpdateGifPairing(id int64, pairing string) error
+	UpdateGifVariant(id int64, variant *string) error
 	UpdateGifAnime(gifID int64, animeID *int64) error
 	ListAllGifs(pairing string, limit, offset int) ([]Gif, error)
 	CountAllGifs(pairing string) (int, error)
@@ -109,7 +122,7 @@ type GifStore interface {
 	DeleteAnime(id int64) error
 
 	// ~~ public library ~~
-	ListPublicGifs(action, pairing, anime string, limit, offset int) ([]Gif, int, error)
+	ListPublicGifs(action, pairing, anime, variant string, limit, offset int) ([]Gif, int, error)
 	ListPublicAnimes() ([]string, error)
 
 	// ~~ users ~~
@@ -155,10 +168,14 @@ func NewGifStore(dbURL, authToken string) (*SQLiteGifStore, error) {
 	return &SQLiteGifStore{db: db}, nil
 }
 
-func (s *SQLiteGifStore) GetRandomGif(action, pairing string, nsfw *bool) (*Gif, error) {
+func (s *SQLiteGifStore) GetRandomGif(action, pairing, variant string, nsfw *bool) (*Gif, error) {
 	countQuery := `SELECT COUNT(*) FROM gifs WHERE action = ?`
 	args := []any{action}
 
+	if variant != "" {
+		countQuery += ` AND variant = ?`
+		args = append(args, variant)
+	}
 	if pairing != "" {
 		countQuery += ` AND pairing = ?`
 		args = append(args, pairing)
@@ -177,11 +194,15 @@ func (s *SQLiteGifStore) GetRandomGif(action, pairing string, nsfw *bool) (*Gif,
 	}
 
 	selectQuery := `
-		SELECT g.id, g.action, g.pairing, g.r2_key, g.content_type, g.size_bytes, g.tags, g.nsfw, g.anime_id, a.name, g.created_at
+		SELECT g.id, g.action, g.variant, g.pairing, g.r2_key, g.content_type, g.size_bytes, g.tags, g.nsfw, g.anime_id, a.name, g.created_at
 		FROM gifs g LEFT JOIN animes a ON g.anime_id = a.id
 		WHERE g.action = ?`
 	selectArgs := []any{action}
 
+	if variant != "" {
+		selectQuery += ` AND g.variant = ?`
+		selectArgs = append(selectArgs, variant)
+	}
 	if pairing != "" {
 		selectQuery += ` AND g.pairing = ?`
 		selectArgs = append(selectArgs, pairing)
@@ -197,8 +218,8 @@ func (s *SQLiteGifStore) GetRandomGif(action, pairing string, nsfw *bool) (*Gif,
 	return s.scanGif(s.db.QueryRow(selectQuery, selectArgs...))
 }
 
-func (s *SQLiteGifStore) GetRandomGifAnyPairing(action string, nsfw *bool) (*Gif, error) {
-	return s.GetRandomGif(action, "", nsfw)
+func (s *SQLiteGifStore) GetRandomGifAnyPairing(action, variant string, nsfw *bool) (*Gif, error) {
+	return s.GetRandomGif(action, "", variant, nsfw)
 }
 
 func (s *SQLiteGifStore) GetAllActions() ([]string, error) {
@@ -223,15 +244,95 @@ func (s *SQLiteGifStore) GetAllActions() ([]string, error) {
 	return actions, nil
 }
 
+func (s *SQLiteGifStore) ActionHasTypes(action string) (bool, error) {
+	const q = `
+		SELECT COUNT(*), COALESCE(SUM(CASE WHEN variant IS NOT NULL AND variant <> '' THEN 1 ELSE 0 END), 0)
+		FROM gifs
+		WHERE action = ?
+	`
+	var total, typed int
+	if err := s.db.QueryRow(q, action).Scan(&total, &typed); err != nil {
+		return false, err
+	}
+	if total == 0 {
+		return false, nil
+	}
+	return total == typed, nil
+}
+
+func (s *SQLiteGifStore) GetActionTypes(action string) ([]string, bool, error) {
+	const q = `
+		SELECT COALESCE(variant, '')
+		FROM gifs
+		WHERE action = ?
+		GROUP BY COALESCE(variant, '')
+		ORDER BY COALESCE(variant, '')
+	`
+	rows, err := s.db.Query(q, action)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+
+	types := make([]string, 0)
+	hasUntyped := false
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, false, err
+		}
+		if v == "" {
+			hasUntyped = true
+			continue
+		}
+		types = append(types, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	if hasUntyped || len(types) == 0 {
+		return []string{}, false, nil
+	}
+	return types, true, nil
+}
+
+func (s *SQLiteGifStore) ListActionVariants(action string) ([]string, error) {
+	const q = `
+		SELECT DISTINCT variant
+		FROM gifs
+		WHERE action = ? AND variant IS NOT NULL AND variant <> ''
+		ORDER BY variant
+	`
+	rows, err := s.db.Query(q, action)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	variants := make([]string, 0)
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		variants = append(variants, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return variants, nil
+}
+
 func (s *SQLiteGifStore) CreateGif(gif *Gif) error {
 	const q = `
-		INSERT INTO gifs (action, pairing, r2_key, content_type, size_bytes, tags, nsfw, anime_id, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO gifs (action, variant, pairing, r2_key, content_type, size_bytes, tags, nsfw, anime_id, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id
 	`
 	return s.db.QueryRow(
 		q,
-		gif.Action, gif.Pairing, gif.R2Key, gif.ContentType, gif.SizeBytes,
+		gif.Action, gif.Variant, gif.Pairing, gif.R2Key, gif.ContentType, gif.SizeBytes,
 		gif.Tags, gif.NSFW, gif.AnimeID, gif.CreatedAt,
 	).Scan(&gif.ID)
 }
@@ -244,20 +345,24 @@ func (s *SQLiteGifStore) DeleteGif(id int64) error {
 
 func (s *SQLiteGifStore) GetGifByID(id int64) (*Gif, error) {
 	const q = `
-		SELECT g.id, g.action, g.pairing, g.r2_key, g.content_type, g.size_bytes, g.tags, g.nsfw, g.anime_id, a.name, g.created_at
+		SELECT g.id, g.action, g.variant, g.pairing, g.r2_key, g.content_type, g.size_bytes, g.tags, g.nsfw, g.anime_id, a.name, g.created_at
 		FROM gifs g LEFT JOIN animes a ON g.anime_id = a.id
 		WHERE g.id = ?
 	`
 	return s.scanGif(s.db.QueryRow(q, id))
 }
 
-func (s *SQLiteGifStore) CountGifs(action, pairing string) (int, error) {
+func (s *SQLiteGifStore) CountGifs(action, pairing, variant string) (int, error) {
 	q := `SELECT COUNT(*) FROM gifs WHERE 1=1`
 	var args []any
 
 	if action != "" {
 		q += ` AND action = ?`
 		args = append(args, action)
+	}
+	if variant != "" {
+		q += ` AND variant = ?`
+		args = append(args, variant)
 	}
 	if pairing != "" {
 		q += ` AND pairing = ?`
@@ -269,13 +374,21 @@ func (s *SQLiteGifStore) CountGifs(action, pairing string) (int, error) {
 	return count, err
 }
 
-func (s *SQLiteGifStore) CountGifsByPairing(action string) ([]PairingCount, error) {
+func (s *SQLiteGifStore) CountGifsByPairing(action, variant string) ([]PairingCount, error) {
 	q := `SELECT pairing, COUNT(*) FROM gifs`
 	var args []any
+	var where []string
 
 	if action != "" {
-		q += ` WHERE action = ?`
+		where = append(where, `action = ?`)
 		args = append(args, action)
+	}
+	if variant != "" {
+		where = append(where, `variant = ?`)
+		args = append(args, variant)
+	}
+	if len(where) > 0 {
+		q += ` WHERE ` + strings.Join(where, ` AND `)
 	}
 
 	q += ` GROUP BY pairing ORDER BY pairing`
@@ -300,32 +413,38 @@ func (s *SQLiteGifStore) CountGifsByPairing(action string) ([]PairingCount, erro
 	return counts, nil
 }
 
-func (s *SQLiteGifStore) RefreshIDPool(action, pairing string) ([]int64, error) {
-	const q = `SELECT id FROM gifs WHERE action = ? AND pairing = ?`
-	rows, err := s.db.Query(q, action, pairing)
+func (s *SQLiteGifStore) GetActionPairingCounts() ([]ActionPairingCount, error) {
+	const q = `
+		SELECT action, pairing, COUNT(*)
+		FROM gifs
+		GROUP BY action, pairing
+		ORDER BY action, pairing
+	`
+	rows, err := s.db.Query(q)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var ids []int64
+	counts := make([]ActionPairingCount, 0)
 	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
+		var row ActionPairingCount
+		if err := rows.Scan(&row.Action, &row.Pairing, &row.Count); err != nil {
 			return nil, err
 		}
-		ids = append(ids, id)
+		counts = append(counts, row)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	return ids, nil
+
+	return counts, nil
 }
 
 func (s *SQLiteGifStore) scanGif(row *sql.Row) (*Gif, error) {
 	g := &Gif{}
 	err := row.Scan(
-		&g.ID, &g.Action, &g.Pairing, &g.R2Key, &g.ContentType, &g.SizeBytes,
+		&g.ID, &g.Action, &g.Variant, &g.Pairing, &g.R2Key, &g.ContentType, &g.SizeBytes,
 		&g.Tags, &g.NSFW, &g.AnimeID, &g.AnimeName, &g.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -340,7 +459,7 @@ func (s *SQLiteGifStore) scanGif(row *sql.Row) (*Gif, error) {
 func (s *SQLiteGifStore) scanGifRow(rows *sql.Rows) (*Gif, error) {
 	g := &Gif{}
 	err := rows.Scan(
-		&g.ID, &g.Action, &g.Pairing, &g.R2Key, &g.ContentType, &g.SizeBytes,
+		&g.ID, &g.Action, &g.Variant, &g.Pairing, &g.R2Key, &g.ContentType, &g.SizeBytes,
 		&g.Tags, &g.NSFW, &g.AnimeID, &g.AnimeName, &g.CreatedAt,
 	)
 	if err != nil {
@@ -349,13 +468,17 @@ func (s *SQLiteGifStore) scanGifRow(rows *sql.Rows) (*Gif, error) {
 	return g, nil
 }
 
-func (s *SQLiteGifStore) GetGifsByActionAndPairing(action, pairing string, limit, offset int) ([]Gif, error) {
+func (s *SQLiteGifStore) GetGifsByActionAndPairing(action, pairing, variant string, limit, offset int) ([]Gif, error) {
 	q := `
-		SELECT g.id, g.action, g.pairing, g.r2_key, g.content_type, g.size_bytes, g.tags, g.nsfw, g.anime_id, a.name, g.created_at
+		SELECT g.id, g.action, g.variant, g.pairing, g.r2_key, g.content_type, g.size_bytes, g.tags, g.nsfw, g.anime_id, a.name, g.created_at
 		FROM gifs g LEFT JOIN animes a ON g.anime_id = a.id
 		WHERE g.action = ?`
 	args := []any{action}
 
+	if variant != "" {
+		q += ` AND g.variant = ?`
+		args = append(args, variant)
+	}
 	if pairing != "" {
 		q += ` AND g.pairing = ?`
 		args = append(args, pairing)
@@ -396,9 +519,15 @@ func (s *SQLiteGifStore) UpdateGifPairing(id int64, pairing string) error {
 	return err
 }
 
+func (s *SQLiteGifStore) UpdateGifVariant(id int64, variant *string) error {
+	const q = `UPDATE gifs SET variant = ? WHERE id = ?`
+	_, err := s.db.Exec(q, variant, id)
+	return err
+}
+
 func (s *SQLiteGifStore) ListAllGifs(pairing string, limit, offset int) ([]Gif, error) {
 	q := `
-		SELECT g.id, g.action, g.pairing, g.r2_key, g.content_type, g.size_bytes, g.tags, g.nsfw, g.anime_id, a.name, g.created_at
+		SELECT g.id, g.action, g.variant, g.pairing, g.r2_key, g.content_type, g.size_bytes, g.tags, g.nsfw, g.anime_id, a.name, g.created_at
 		FROM gifs g LEFT JOIN animes a ON g.anime_id = a.id
 		WHERE 1=1`
 	var args []any
@@ -495,13 +624,17 @@ func (s *SQLiteGifStore) DeleteAnime(id int64) error {
 	return err
 }
 
-func (s *SQLiteGifStore) ListPublicGifs(action, pairing, anime string, limit, offset int) ([]Gif, int, error) {
+func (s *SQLiteGifStore) ListPublicGifs(action, pairing, anime, variant string, limit, offset int) ([]Gif, int, error) {
 	where := `WHERE g.nsfw = 0`
 	var args []any
 
 	if action != "" {
 		where += ` AND g.action = ?`
 		args = append(args, action)
+	}
+	if variant != "" {
+		where += ` AND g.variant = ?`
+		args = append(args, variant)
 	}
 	if pairing != "" {
 		where += ` AND g.pairing = ?`
@@ -518,7 +651,7 @@ func (s *SQLiteGifStore) ListPublicGifs(action, pairing, anime string, limit, of
 		return nil, 0, err
 	}
 
-	q := `SELECT g.id, g.action, g.pairing, g.r2_key, g.content_type, g.size_bytes, g.tags, g.nsfw, g.anime_id, a.name, g.created_at
+	q := `SELECT g.id, g.action, g.variant, g.pairing, g.r2_key, g.content_type, g.size_bytes, g.tags, g.nsfw, g.anime_id, a.name, g.created_at
 		FROM gifs g LEFT JOIN animes a ON g.anime_id = a.id ` + where + ` ORDER BY g.created_at DESC LIMIT ? OFFSET ?`
 	args = append(args, limit, offset)
 

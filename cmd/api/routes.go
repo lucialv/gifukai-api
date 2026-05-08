@@ -35,6 +35,7 @@ func (s *APIServer) Routes() *chi.Mux {
 
 	r.Get("/stats", makeHTTPHandleFunc(s.statsHandler))
 	r.Get("/actions", makeHTTPHandleFunc(h.ListActionsHandler))
+	r.Get("/actions/{action}/types", makeHTTPHandleFunc(h.ActionTypesHandler))
 
 	r.Get("/library", makeHTTPHandleFunc(s.publicListGifsHandler))
 	r.Get("/library/animes", makeHTTPHandleFunc(s.publicListAnimesHandler))
@@ -68,8 +69,11 @@ func (s *APIServer) Routes() *chi.Mux {
 			r.Delete("/{gifId}", makeHTTPHandleFunc(s.deleteGifHandler))
 			r.Patch("/{gifId}/tags", makeHTTPHandleFunc(s.updateGifTagsHandler))
 			r.Patch("/{gifId}/pairing", makeHTTPHandleFunc(s.updateGifPairingHandler))
+			r.Patch("/{gifId}/type", makeHTTPHandleFunc(s.updateGifTypeHandler))
 			r.Patch("/{gifId}/anime", makeHTTPHandleFunc(s.updateGifAnimeHandler))
 		})
+		r.Get("/actions/coverage", makeHTTPHandleFunc(h.ActionCoverageHandler))
+		r.Get("/actions/{action}/variants", makeHTTPHandleFunc(h.ActionVariantsAdminHandler))
 		r.Get("/actions/{action}/count", makeHTTPHandleFunc(h.CountGifsHandler))
 		r.Route("/animes", func(r chi.Router) {
 			r.Get("/", makeHTTPHandleFunc(s.listAnimesHandler))

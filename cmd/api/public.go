@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strings"
 
 	"github.com/lucialv/gifukai-api/cmd/api/handlers"
 	u "github.com/lucialv/gifukai-api/pkg/utils"
@@ -12,6 +13,7 @@ import (
 type PublicGifItem struct {
 	ID          int64   `json:"id"`
 	Action      string  `json:"action"`
+	Variant     *string `json:"type,omitempty"`
 	Pairing     string  `json:"pairing"`
 	URL         string  `json:"url"`
 	AnimeName   *string `json:"anime,omitempty"`
@@ -21,9 +23,17 @@ type PublicGifItem struct {
 }
 
 func (s *APIServer) publicListGifsHandler(w http.ResponseWriter, r *http.Request) error {
-	action := r.URL.Query().Get("action")
-	pairing := r.URL.Query().Get("pairing")
-	anime := r.URL.Query().Get("anime")
+	policy, badRequest, err := handlers.ResolveActionTypePolicy(s.Store, r.URL.Query().Get("action"), r.URL.Query().Get("type"), true)
+	if err != nil {
+		return err
+	}
+	if badRequest != "" {
+		u.WriteError(w, http.StatusBadRequest, badRequest)
+		return nil
+	}
+
+	pairing := handlers.NormalizePairing(r.URL.Query().Get("pairing"))
+	anime := strings.TrimSpace(r.URL.Query().Get("anime"))
 
 	if pairing != "" && !handlers.ValidPairings[pairing] {
 		u.WriteError(w, http.StatusBadRequest, fmt.Sprintf("invalid pairing: %s", pairing))
@@ -32,8 +42,11 @@ func (s *APIServer) publicListGifsHandler(w http.ResponseWriter, r *http.Request
 
 	limit, offset := handlers.ParsePagination(r, 60, 200)
 
-	gifs, total, err := s.Store.ListPublicGifs(action, pairing, anime, limit, offset)
+	gifs, total, err := s.Store.ListPublicGifs(policy.Action, pairing, anime, policy.Type, limit, offset)
 	if err != nil {
+		return err
+	}
+	if err := handlers.HideVariantsForUntypedActions(s.Store, gifs); err != nil {
 		return err
 	}
 
@@ -42,19 +55,29 @@ func (s *APIServer) publicListGifsHandler(w http.ResponseWriter, r *http.Request
 		items = append(items, PublicGifItem{
 			ID:          g.ID,
 			Action:      g.Action,
+			Variant:     g.Variant,
 			Pairing:     g.Pairing,
-			URL:         fmt.Sprintf("%s/%s", s.Config.CDNBaseURL, g.R2Key),
 			AnimeName:   g.AnimeName,
+			URL:         fmt.Sprintf("%s/%s", s.Config.CDNBaseURL, g.R2Key),
 			ContentType: g.ContentType,
 			SizeBytes:   g.SizeBytes,
 			Filename:    filepath.Base(g.R2Key),
 		})
 	}
 
-	return u.WriteJSON(w, http.StatusOK, map[string]any{
+	response := map[string]any{
 		"gifs":  items,
 		"total": total,
-	})
+	}
+	if policy.Action != "" {
+		response["action"] = policy.Action
+		response["has_types"] = policy.HasTypes
+	}
+	if policy.Type != "" {
+		response["type"] = policy.Type
+	}
+
+	return u.WriteJSON(w, http.StatusOK, response)
 }
 
 func (s *APIServer) publicListAnimesHandler(w http.ResponseWriter, r *http.Request) error {

@@ -4,13 +4,13 @@ import "database/sql"
 
 func (s *SQLiteGifStore) CreateSuggestion(suggestion *Suggestion) error {
 	const q = `
-		INSERT INTO suggestions (user_id, file_key, content_type, size_bytes, action, pairing, anime, tags)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO suggestions (user_id, file_key, content_type, size_bytes, action, variant, pairing, anime, tags)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id, created_at
 	`
 	return s.db.QueryRow(q,
 		suggestion.UserID, suggestion.FileKey, suggestion.ContentType, suggestion.SizeBytes,
-		suggestion.Action, suggestion.Pairing, suggestion.Anime, suggestion.Tags,
+		suggestion.Action, suggestion.Variant, suggestion.Pairing, suggestion.Anime, suggestion.Tags,
 	).Scan(&suggestion.ID, &suggestion.CreatedAt)
 }
 
@@ -30,7 +30,7 @@ func (s *SQLiteGifStore) ListSuggestions(status string, limit, offset int) ([]Su
 
 	q := `
 		SELECT s.id, s.user_id, s.file_key, s.content_type, s.size_bytes,
-			s.action, s.pairing, s.anime, s.tags, s.status, s.created_at,
+			s.action, s.variant, s.pairing, s.anime, s.tags, s.status, s.created_at,
 			u.display_name
 		FROM suggestions s
 		LEFT JOIN users u ON s.user_id = u.id
@@ -60,7 +60,7 @@ func (s *SQLiteGifStore) ListSuggestions(status string, limit, offset int) ([]Su
 func (s *SQLiteGifStore) GetSuggestionByID(id int64) (*Suggestion, error) {
 	const q = `
 		SELECT s.id, s.user_id, s.file_key, s.content_type, s.size_bytes,
-			s.action, s.pairing, s.anime, s.tags, s.status, s.created_at,
+			s.action, s.variant, s.pairing, s.anime, s.tags, s.status, s.created_at,
 			u.display_name
 		FROM suggestions s
 		LEFT JOIN users u ON s.user_id = u.id
@@ -69,7 +69,7 @@ func (s *SQLiteGifStore) GetSuggestionByID(id int64) (*Suggestion, error) {
 	row := s.db.QueryRow(q, id)
 	sg := &Suggestion{}
 	err := row.Scan(&sg.ID, &sg.UserID, &sg.FileKey, &sg.ContentType, &sg.SizeBytes,
-		&sg.Action, &sg.Pairing, &sg.Anime, &sg.Tags, &sg.Status, &sg.CreatedAt,
+		&sg.Action, &sg.Variant, &sg.Pairing, &sg.Anime, &sg.Tags, &sg.Status, &sg.CreatedAt,
 		&sg.UserName)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -102,7 +102,7 @@ func (s *SQLiteGifStore) CountUserSuggestionsToday(userID int64) (int, error) {
 func (s *SQLiteGifStore) ListUserSuggestions(userID int64, limit, offset int) ([]Suggestion, error) {
 	const q = `
 		SELECT s.id, s.user_id, s.file_key, s.content_type, s.size_bytes,
-			s.action, s.pairing, s.anime, s.tags, s.status, s.created_at,
+			s.action, s.variant, s.pairing, s.anime, s.tags, s.status, s.created_at,
 			u.display_name
 		FROM suggestions s
 		LEFT JOIN users u ON s.user_id = u.id
@@ -132,7 +132,7 @@ func (s *SQLiteGifStore) ListUserSuggestions(userID int64, limit, offset int) ([
 func (s *SQLiteGifStore) scanSuggestionRow(rows *sql.Rows) (*Suggestion, error) {
 	sg := &Suggestion{}
 	err := rows.Scan(&sg.ID, &sg.UserID, &sg.FileKey, &sg.ContentType, &sg.SizeBytes,
-		&sg.Action, &sg.Pairing, &sg.Anime, &sg.Tags, &sg.Status, &sg.CreatedAt,
+		&sg.Action, &sg.Variant, &sg.Pairing, &sg.Anime, &sg.Tags, &sg.Status, &sg.CreatedAt,
 		&sg.UserName)
 	if err != nil {
 		return nil, err

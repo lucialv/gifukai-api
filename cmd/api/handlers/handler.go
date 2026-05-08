@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/lucialv/gifukai-api/pkg/storage"
 	"github.com/lucialv/gifukai-api/pkg/store"
@@ -35,13 +37,18 @@ var ValidPairings = map[string]bool{
 
 type GifResponse struct {
 	Action      string  `json:"action"`
+	Variant     *string `json:"type,omitempty"`
 	Pairing     string  `json:"pairing"`
+	AnimeName   *string `json:"anime,omitempty"`
 	URL         string  `json:"url"`
 	Filename    string  `json:"filename"`
 	ContentType string  `json:"content_type"`
 	SizeBytes   int64   `json:"size_bytes"`
-	AnimeName   *string `json:"anime,omitempty"`
 }
+
+var PairingOrder = []string{"f", "m", "ff", "mm", "fm", "mf"}
+
+var typePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
 func GetUserID(r *http.Request) int64 {
 	return r.Context().Value(userIDKey).(int64)
@@ -81,13 +88,107 @@ func ParseIDParam(w http.ResponseWriter, r *http.Request, param, label string) (
 func BuildGifResponse(g *store.Gif, cdnBase string) GifResponse {
 	return GifResponse{
 		Action:      g.Action,
+		Variant:     g.Variant,
 		Pairing:     g.Pairing,
+		AnimeName:   g.AnimeName,
 		URL:         fmt.Sprintf("%s/%s", cdnBase, g.R2Key),
 		Filename:    filepath.Base(g.R2Key),
 		ContentType: g.ContentType,
 		SizeBytes:   g.SizeBytes,
-		AnimeName:   g.AnimeName,
 	}
+}
+
+func NormalizeGifType(raw string) (string, error) {
+	t := strings.ToLower(strings.TrimSpace(raw))
+	if t == "" {
+		return "", nil
+	}
+	if !typePattern.MatchString(t) {
+		return "", fmt.Errorf("invalid type: %s (use 1-32 chars: a-z, 0-9, _, -)", raw)
+	}
+	return t, nil
+}
+
+func NormalizeAction(raw string) string {
+	return strings.ToLower(strings.TrimSpace(raw))
+}
+
+func NormalizePairing(raw string) string {
+	return strings.ToLower(strings.TrimSpace(raw))
+}
+
+type ActionTypePolicy struct {
+	Action   string
+	Type     string
+	HasTypes bool
+}
+
+func ResolveActionTypePolicy(gifStore store.GifStore, rawAction, rawType string, requireActionForType bool) (ActionTypePolicy, string, error) {
+	policy := ActionTypePolicy{Action: NormalizeAction(rawAction)}
+
+	gifType, err := NormalizeGifType(rawType)
+	if err != nil {
+		return policy, err.Error(), nil
+	}
+	policy.Type = gifType
+
+	if policy.Action != "" {
+		hasTypes, err := gifStore.ActionHasTypes(policy.Action)
+		if err != nil {
+			return policy, "", err
+		}
+		policy.HasTypes = hasTypes
+	}
+
+	if policy.Type == "" {
+		return policy, "", nil
+	}
+
+	if policy.Action == "" {
+		if requireActionForType {
+			return policy, "action is required when using type filter", nil
+		}
+		return policy, "", nil
+	}
+
+	if !policy.HasTypes {
+		return policy, fmt.Sprintf("action %s does not support type filtering", policy.Action), nil
+	}
+
+	return policy, "", nil
+}
+
+func RequireTypeForTypedAction(policy ActionTypePolicy) string {
+	if policy.Action != "" && policy.HasTypes && policy.Type == "" {
+		return fmt.Sprintf("type is required for action: %s", policy.Action)
+	}
+	return ""
+}
+
+func HideVariantIfUntyped(resp *GifResponse, hasTypes bool) {
+	if !hasTypes {
+		resp.Variant = nil
+	}
+}
+
+func HideVariantsForUntypedActions(gifStore store.GifStore, gifs []store.Gif) error {
+	actionHasTypes := make(map[string]bool)
+	for i := range gifs {
+		action := NormalizeAction(gifs[i].Action)
+		hasTypes, ok := actionHasTypes[action]
+		if !ok {
+			var err error
+			hasTypes, err = gifStore.ActionHasTypes(action)
+			if err != nil {
+				return err
+			}
+			actionHasTypes[action] = hasTypes
+		}
+		if !hasTypes {
+			gifs[i].Variant = nil
+		}
+	}
+	return nil
 }
 
 func (h *Handler) buildGifResponse(g *store.Gif) GifResponse {
