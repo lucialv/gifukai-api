@@ -72,7 +72,7 @@ Check documentation at [gifukai.com](https://gifukai.com/endpoints/action-types/
 
 ## Example response
 
-`GET /kiss?type=cheek&pairing=mf` might return:
+`GET /kiss?type=cheek&pairing=fm` might return:
 
 ```json
 {
