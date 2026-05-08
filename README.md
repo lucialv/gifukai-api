@@ -78,12 +78,12 @@ Check documentation at [gifukai.com](https://gifukai.com/endpoints/action-types/
 {
   "action": "kiss",
   "type": "cheek",
-  "pairing": "mf",
-  "anime": "Date A Live",
-  "url": "https://cdn.gifukai.com/kiss/f392b436-e889-4542-8b97-7b11c7d005f6.gif",
-  "filename": "f392b436-e889-4542-8b97-7b11c7d005f6.gif",
+  "pairing": "fm",
+  "anime": "Tsuredure Children",
+  "url": "https://cdn.gifukai.com/kiss/52e7fa7d-b873-4e78-a6aa-eb1118c5281c.gif",
+  "filename": "52e7fa7d-b873-4e78-a6aa-eb1118c5281c.gif",
   "content_type": "image/gif",
-  "size_bytes": 577909
+  "size_bytes": 4201101
 }
 ```
 
