@@ -11,15 +11,16 @@ import (
 )
 
 type PublicGifItem struct {
-	ID          int64   `json:"id"`
-	Action      string  `json:"action"`
-	Variant     *string `json:"type,omitempty"`
-	Pairing     string  `json:"pairing"`
-	URL         string  `json:"url"`
-	AnimeName   *string `json:"anime,omitempty"`
-	ContentType string  `json:"content_type"`
-	SizeBytes   int64   `json:"size_bytes"`
-	Filename    string  `json:"filename"`
+	ID          int64    `json:"id"`
+	Action      string   `json:"action"`
+	Actions     []string `json:"actions"`
+	Variant     *string  `json:"type,omitempty"`
+	Pairing     string   `json:"pairing"`
+	URL         string   `json:"url"`
+	AnimeName   *string  `json:"anime,omitempty"`
+	ContentType string   `json:"content_type"`
+	SizeBytes   int64    `json:"size_bytes"`
+	Filename    string   `json:"filename"`
 }
 
 func (s *APIServer) publicListGifsHandler(w http.ResponseWriter, r *http.Request) error {

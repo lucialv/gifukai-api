@@ -48,6 +48,10 @@ type GifResponse struct {
 
 var PairingOrder = []string{"f", "m", "ff", "mm", "fm", "mf"}
 
+func IsDirectionalPairing(pairing string) bool {
+	return pairing == "mf" || pairing == "fm"
+}
+
 var typePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
 func GetUserID(r *http.Request) int64 {
@@ -159,8 +163,16 @@ func ResolveActionTypePolicy(gifStore store.GifStore, rawAction, rawType string,
 }
 
 func RequireTypeForTypedAction(policy ActionTypePolicy) string {
-	if policy.Action != "" && policy.HasTypes && policy.Type == "" {
-		return fmt.Sprintf("type is required for action: %s", policy.Action)
+	if policy.Action == "" || policy.Type != "" {
+		return ""
+	}
+	return RequireVariantForTypedAction(policy.Action, policy.HasTypes, nil)
+}
+
+// write-path twin for handlers that already hold a normalized *string variant :3
+func RequireVariantForTypedAction(action string, hasTypes bool, variant *string) string {
+	if hasTypes && variant == nil {
+		return fmt.Sprintf("type is required for action: %s", action)
 	}
 	return ""
 }

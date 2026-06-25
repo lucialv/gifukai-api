@@ -58,6 +58,9 @@ func (r *R2Storage) UploadFile(key string, data []byte, contentType string) erro
 		Key:         aws.String(key),
 		Body:        bytes.NewReader(data),
 		ContentType: aws.String(contentType),
+		// Objects are immutable (UUID-named, never overwritten), so let
+		// Cloudflare/Discord/browsers cache them aggressively from origin.
+		CacheControl: aws.String("public, max-age=31536000, immutable"),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to upload file to R2: %w", err)

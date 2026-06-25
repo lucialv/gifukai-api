@@ -3,6 +3,7 @@ package store
 import (
 	"log"
 	"math/rand/v2"
+	"slices"
 	"sort"
 	"sync/atomic"
 	"time"
@@ -70,14 +71,16 @@ func (c *CachedGifStore) Reload() error {
 	for i := range d.gifs {
 		g := &d.gifs[i]
 		d.byID[g.ID] = g
-		d.byAction[g.Action] = append(d.byAction[g.Action], g)
-		if g.Variant != nil && *g.Variant != "" {
-			if _, ok := typeSets[g.Action]; !ok {
-				typeSets[g.Action] = make(map[string]struct{})
+		for _, action := range GifActions(g) {
+			d.byAction[action] = append(d.byAction[action], g)
+			if g.Variant != nil && *g.Variant != "" {
+				if _, ok := typeSets[action]; !ok {
+					typeSets[action] = make(map[string]struct{})
+				}
+				typeSets[action][*g.Variant] = struct{}{}
+			} else {
+				hasUntyped[action] = true
 			}
-			typeSets[g.Action][*g.Variant] = struct{}{}
-		} else {
-			hasUntyped[g.Action] = true
 		}
 		totalBytes += g.SizeBytes
 		pairingCounts[g.Pairing]++
@@ -126,6 +129,36 @@ func (c *CachedGifStore) reloadQuiet() {
 
 // ~~ GIFs ~~
 
+func GifActions(g *Gif) []string {
+	if len(g.Actions) > 0 {
+		return g.Actions
+	}
+	if g.Action != "" {
+		return []string{g.Action}
+	}
+	return nil
+}
+
+func gifHasAction(g *Gif, action string) bool {
+	return slices.Contains(GifActions(g), action)
+}
+
+// in-memory twin of pairingClause :3
+func gifMatchesPairing(g *Gif, pairing string) bool {
+	if pairing == "" || g.Pairing == pairing {
+		return true
+	}
+	if g.Bidirectional {
+		switch pairing {
+		case "mf":
+			return g.Pairing == "fm"
+		case "fm":
+			return g.Pairing == "mf"
+		}
+	}
+	return false
+}
+
 func (c *CachedGifStore) GetRandomGif(action, pairing, variant string, nsfw *bool) (*Gif, error) {
 	d := c.data.Load()
 	candidates := d.byAction[action]
@@ -138,7 +171,7 @@ func (c *CachedGifStore) GetRandomGif(action, pairing, variant string, nsfw *boo
 		if variant != "" && (g.Variant == nil || *g.Variant != variant) {
 			continue
 		}
-		if pairing != "" && g.Pairing != pairing {
+		if !gifMatchesPairing(g, pairing) {
 			continue
 		}
 		if nsfw != nil && g.NSFW != *nsfw {
@@ -151,6 +184,8 @@ func (c *CachedGifStore) GetRandomGif(action, pairing, variant string, nsfw *boo
 	}
 
 	picked := *filtered[rand.IntN(len(filtered))]
+	picked.Action = action
+	picked.Actions = []string{action}
 	return &picked, nil
 }
 
@@ -217,7 +252,7 @@ func (c *CachedGifStore) GetGifsByActionAndPairing(action, pairing, variant stri
 		if variant != "" && (g.Variant == nil || *g.Variant != variant) {
 			continue
 		}
-		if pairing != "" && g.Pairing != pairing {
+		if !gifMatchesPairing(g, pairing) {
 			continue
 		}
 		filtered = append(filtered, g)
@@ -239,13 +274,13 @@ func (c *CachedGifStore) CountGifs(action, pairing, variant string) (int, error)
 	d := c.data.Load()
 	count := 0
 	for i := range d.gifs {
-		if action != "" && d.gifs[i].Action != action {
+		if action != "" && !gifHasAction(&d.gifs[i], action) {
 			continue
 		}
 		if variant != "" && (d.gifs[i].Variant == nil || *d.gifs[i].Variant != variant) {
 			continue
 		}
-		if pairing != "" && d.gifs[i].Pairing != pairing {
+		if !gifMatchesPairing(&d.gifs[i], pairing) {
 			continue
 		}
 		count++
@@ -257,7 +292,7 @@ func (c *CachedGifStore) CountGifsByPairing(action, variant string) ([]PairingCo
 	d := c.data.Load()
 	counts := make(map[string]int)
 	for i := range d.gifs {
-		if action != "" && d.gifs[i].Action != action {
+		if action != "" && !gifHasAction(&d.gifs[i], action) {
 			continue
 		}
 		if variant != "" && (d.gifs[i].Variant == nil || *d.gifs[i].Variant != variant) {
@@ -281,11 +316,12 @@ func (c *CachedGifStore) GetActionPairingCounts() ([]ActionPairingCount, error) 
 
 	countsByAction := make(map[string]map[string]int)
 	for i := range d.gifs {
-		action := d.gifs[i].Action
-		if _, ok := countsByAction[action]; !ok {
-			countsByAction[action] = make(map[string]int)
+		for _, action := range GifActions(&d.gifs[i]) {
+			if _, ok := countsByAction[action]; !ok {
+				countsByAction[action] = make(map[string]int)
+			}
+			countsByAction[action][d.gifs[i].Pairing]++
 		}
-		countsByAction[action][d.gifs[i].Pairing]++
 	}
 
 	actions := make([]string, 0, len(countsByAction))
@@ -322,7 +358,7 @@ func (c *CachedGifStore) ListAllGifs(pairing string, limit, offset int) ([]Gif, 
 		src = d.gifs
 	} else {
 		for i := range d.gifs {
-			if d.gifs[i].Pairing == pairing {
+			if gifMatchesPairing(&d.gifs[i], pairing) {
 				src = append(src, d.gifs[i])
 			}
 		}
@@ -345,7 +381,7 @@ func (c *CachedGifStore) CountAllGifs(pairing string) (int, error) {
 	}
 	count := 0
 	for i := range d.gifs {
-		if d.gifs[i].Pairing == pairing {
+		if gifMatchesPairing(&d.gifs[i], pairing) {
 			count++
 		}
 	}
@@ -378,13 +414,13 @@ func (c *CachedGifStore) ListPublicGifs(action, pairing, anime, variant string, 
 		if g.NSFW {
 			continue
 		}
-		if action != "" && g.Action != action {
+		if action != "" && !gifHasAction(g, action) {
 			continue
 		}
 		if variant != "" && (g.Variant == nil || *g.Variant != variant) {
 			continue
 		}
-		if pairing != "" && g.Pairing != pairing {
+		if !gifMatchesPairing(g, pairing) {
 			continue
 		}
 		if anime != "" && (g.AnimeName == nil || *g.AnimeName != anime) {
@@ -430,6 +466,14 @@ func (c *CachedGifStore) CreateGif(gif *Gif) error {
 	return nil
 }
 
+func (c *CachedGifStore) SetGifActions(gifID int64, actions []string) error {
+	if err := c.inner.SetGifActions(gifID, actions); err != nil {
+		return err
+	}
+	c.reloadQuiet()
+	return nil
+}
+
 func (c *CachedGifStore) DeleteGif(id int64) error {
 	if err := c.inner.DeleteGif(id); err != nil {
 		return err
@@ -456,6 +500,14 @@ func (c *CachedGifStore) UpdateGifPairing(id int64, pairing string) error {
 
 func (c *CachedGifStore) UpdateGifVariant(id int64, variant *string) error {
 	if err := c.inner.UpdateGifVariant(id, variant); err != nil {
+		return err
+	}
+	c.reloadQuiet()
+	return nil
+}
+
+func (c *CachedGifStore) UpdateGifBidirectional(id int64, bidirectional bool) error {
+	if err := c.inner.UpdateGifBidirectional(id, bidirectional); err != nil {
 		return err
 	}
 	c.reloadQuiet()
