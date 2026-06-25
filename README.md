@@ -26,8 +26,18 @@ Returns a random GIF for the given action. No API key, no signup, no rate limits
 | `cry`   | https://api.gifukai.com/cry   |
 | `sleep` | https://api.gifukai.com/sleep |
 
-You can get the full list of actions from `GET /actions`
-(`actions_with_types` is included so clients can see `has_types` per action).
+You can get the full list of actions from `GET /actions`. It returns an
+`actions` object keyed by action name, each carrying `has_types` so clients
+know which actions support the `?type=` filter:
+
+```json
+{
+  "actions": {
+    "hug": { "has_types": false },
+    "kiss": { "has_types": true }
+  }
+}
+```
 
 ## Pairing filter
 

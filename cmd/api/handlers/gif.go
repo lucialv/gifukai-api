@@ -17,9 +17,8 @@ type actionCoverageItem struct {
 	PairingCount *int                 `json:"pairing_count,omitempty"`
 }
 
-type actionItem struct {
-	Action   string `json:"action"`
-	HasTypes bool   `json:"has_types"`
+type actionInfo struct {
+	HasTypes bool `json:"has_types"`
 }
 
 func (h *Handler) ListActionsHandler(w http.ResponseWriter, r *http.Request) error {
@@ -27,20 +26,18 @@ func (h *Handler) ListActionsHandler(w http.ResponseWriter, r *http.Request) err
 	if err != nil {
 		return err
 	}
-	actions = u.OrEmpty(actions)
 
-	items := make([]actionItem, 0, len(actions))
+	out := make(map[string]actionInfo, len(actions))
 	for _, action := range actions {
 		hasTypes, err := h.Store.ActionHasTypes(action)
 		if err != nil {
 			return err
 		}
-		items = append(items, actionItem{Action: action, HasTypes: hasTypes})
+		out[action] = actionInfo{HasTypes: hasTypes}
 	}
 
 	return u.WriteJSON(w, http.StatusOK, map[string]any{
-		"actions":            actions,
-		"actions_with_types": items,
+		"actions": out,
 	})
 }
 
@@ -102,39 +99,31 @@ func (h *Handler) ActionCoverageHandler(w http.ResponseWriter, r *http.Request) 
 		return err
 	}
 
-	totalsByAction := make(map[string]int, len(actions))
 	countsByAction := make(map[string]map[string]int, len(actions))
 	for _, row := range counts {
-		action := row.Action
-		totalsByAction[action] += row.Count
-		if _, ok := countsByAction[action]; !ok {
-			countsByAction[action] = make(map[string]int)
+		if _, ok := countsByAction[row.Action]; !ok {
+			countsByAction[row.Action] = make(map[string]int)
 		}
-		countsByAction[action][row.Pairing] = row.Count
+		countsByAction[row.Action][row.Pairing] = row.Count
 	}
 
 	items := make([]actionCoverageItem, 0, len(actions))
 	for _, action := range actions {
+		byAction := countsByAction[action]
+		total := 0
 		byPairing := make([]store.PairingCount, 0, len(ValidPairings))
 		for _, p := range PairingOrder {
-			pairingCount := 0
-			if m, ok := countsByAction[action]; ok {
-				pairingCount = m[p]
-			}
-
-			byPairing = append(byPairing, store.PairingCount{Pairing: p, Count: pairingCount})
+			total += byAction[p]
+			byPairing = append(byPairing, store.PairingCount{Pairing: p, Count: byAction[p]})
 		}
 
 		item := actionCoverageItem{
 			Action:    action,
-			Total:     totalsByAction[action],
+			Total:     total,
 			ByPairing: byPairing,
 		}
 		if pairing != "" {
-			v := 0
-			if m, ok := countsByAction[action]; ok {
-				v = m[pairing]
-			}
+			v := byAction[pairing]
 			item.PairingCount = &v
 		}
 
@@ -214,9 +203,7 @@ func (h *Handler) GetRandomGifHandler(w http.ResponseWriter, r *http.Request) er
 		nsfwFilter = &val
 	}
 
-	var (
-		result *store.Gif
-	)
+	var result *store.Gif
 	if pairing == "" {
 		result, err = h.Store.GetRandomGifAnyPairing(policy.Action, policy.Type, nsfwFilter)
 	} else {

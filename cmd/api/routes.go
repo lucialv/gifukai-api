@@ -70,6 +70,8 @@ func (s *APIServer) Routes() *chi.Mux {
 			r.Patch("/{gifId}/tags", makeHTTPHandleFunc(s.updateGifTagsHandler))
 			r.Patch("/{gifId}/pairing", makeHTTPHandleFunc(s.updateGifPairingHandler))
 			r.Patch("/{gifId}/type", makeHTTPHandleFunc(s.updateGifTypeHandler))
+			r.Patch("/{gifId}/actions", makeHTTPHandleFunc(s.updateGifActionsHandler))
+			r.Patch("/{gifId}/bidirectional", makeHTTPHandleFunc(s.updateGifBidirectionalHandler))
 			r.Patch("/{gifId}/anime", makeHTTPHandleFunc(s.updateGifAnimeHandler))
 		})
 		r.Get("/actions/coverage", makeHTTPHandleFunc(h.ActionCoverageHandler))

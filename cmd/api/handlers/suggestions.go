@@ -207,8 +207,8 @@ func (h *Handler) ApproveSuggestionHandler(w http.ResponseWriter, r *http.Reques
 			normalizedVariant = &t
 		}
 	}
-	if hasTypes && normalizedVariant == nil {
-		u.WriteError(w, http.StatusBadRequest, fmt.Sprintf("type is required for action: %s", action))
+	if msg := RequireVariantForTypedAction(action, hasTypes, normalizedVariant); msg != "" {
+		u.WriteError(w, http.StatusBadRequest, msg)
 		return nil
 	}
 
@@ -279,12 +279,8 @@ func (h *Handler) ApproveSuggestionHandler(w http.ResponseWriter, r *http.Reques
 		return fmt.Errorf("failed to update suggestion status: %w", err)
 	}
 	_ = h.R2Storage.DeleteFile(suggestion.FileKey)
-	hasTypesAfter, err := h.Store.ActionHasTypes(action)
-	if err != nil {
-		return err
-	}
 	resp := h.buildGifResponse(gif)
-	HideVariantIfUntyped(&resp, hasTypesAfter)
+	HideVariantIfUntyped(&resp, hasTypes)
 
 	return u.WriteJSON(w, http.StatusOK, map[string]any{
 		"status": "approved",

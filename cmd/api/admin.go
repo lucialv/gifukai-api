@@ -18,35 +18,39 @@ import (
 )
 
 type adminGifItem struct {
-	ID          int64   `json:"id"`
-	Action      string  `json:"action"`
-	Variant     *string `json:"type,omitempty"`
-	Pairing     string  `json:"pairing"`
-	URL         string  `json:"url"`
-	Filename    string  `json:"filename"`
-	ContentType string  `json:"content_type"`
-	SizeBytes   int64   `json:"size_bytes"`
-	NSFW        bool    `json:"nsfw"`
-	Tags        string  `json:"tags,omitempty"`
-	AnimeID     *int64  `json:"anime_id,omitempty"`
-	AnimeName   *string `json:"anime,omitempty"`
+	ID            int64    `json:"id"`
+	Action        string   `json:"action"`
+	Actions       []string `json:"actions"`
+	Variant       *string  `json:"type,omitempty"`
+	Pairing       string   `json:"pairing"`
+	Bidirectional bool     `json:"bidirectional"`
+	URL           string   `json:"url"`
+	Filename      string   `json:"filename"`
+	ContentType   string   `json:"content_type"`
+	SizeBytes     int64    `json:"size_bytes"`
+	NSFW          bool     `json:"nsfw"`
+	Tags          string   `json:"tags,omitempty"`
+	AnimeID       *int64   `json:"anime_id,omitempty"`
+	AnimeName     *string  `json:"anime,omitempty"`
 }
 
 func buildAdminGifItems(gifs []store.Gif, cdnBaseURL string) []adminGifItem {
 	items := make([]adminGifItem, 0, len(gifs))
 	for _, g := range gifs {
 		item := adminGifItem{
-			ID:          g.ID,
-			Action:      g.Action,
-			Variant:     g.Variant,
-			Pairing:     g.Pairing,
-			AnimeName:   g.AnimeName,
-			URL:         fmt.Sprintf("%s/%s", cdnBaseURL, g.R2Key),
-			Filename:    filepath.Base(g.R2Key),
-			ContentType: g.ContentType,
-			SizeBytes:   g.SizeBytes,
-			NSFW:        g.NSFW,
-			AnimeID:     g.AnimeID,
+			ID:            g.ID,
+			Action:        g.Action,
+			Actions:       store.GifActions(&g),
+			Variant:       g.Variant,
+			Pairing:       g.Pairing,
+			Bidirectional: g.Bidirectional,
+			AnimeName:     g.AnimeName,
+			URL:           fmt.Sprintf("%s/%s", cdnBaseURL, g.R2Key),
+			Filename:      filepath.Base(g.R2Key),
+			ContentType:   g.ContentType,
+			SizeBytes:     g.SizeBytes,
+			NSFW:          g.NSFW,
+			AnimeID:       g.AnimeID,
 		}
 		if g.Tags != nil {
 			item.Tags = *g.Tags
@@ -54,6 +58,25 @@ func buildAdminGifItems(gifs []store.Gif, cdnBaseURL string) []adminGifItem {
 		items = append(items, item)
 	}
 	return items
+}
+
+func parseActions(values []string) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, v := range values {
+		for _, part := range strings.Split(v, ",") {
+			a := handlers.NormalizeAction(part)
+			if a == "" {
+				continue
+			}
+			if _, ok := seen[a]; ok {
+				continue
+			}
+			seen[a] = struct{}{}
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 const maxUploadSize = 15 << 20 // 15 MB
@@ -64,7 +87,14 @@ func (s *APIServer) uploadGifHandler(w http.ResponseWriter, r *http.Request) err
 		return nil
 	}
 
-	policy, badRequest, err := handlers.ResolveActionTypePolicy(s.Store, r.FormValue("action"), r.FormValue("type"), false)
+	actions := parseActions(r.MultipartForm.Value["action"])
+	if len(actions) == 0 {
+		u.WriteError(w, http.StatusBadRequest, "at least one action is required")
+		return nil
+	}
+
+	// first action drives type policy + R2 folder, the rest just tag along :3
+	policy, badRequest, err := handlers.ResolveActionTypePolicy(s.Store, actions[0], r.FormValue("type"), false)
 	if err != nil {
 		return err
 	}
@@ -77,16 +107,19 @@ func (s *APIServer) uploadGifHandler(w http.ResponseWriter, r *http.Request) err
 	tags := r.FormValue("tags")
 	nsfwStr := r.FormValue("nsfw")
 
-	if policy.Action == "" {
-		u.WriteError(w, http.StatusBadRequest, "action is required")
-		return nil
-	}
 	if msg := handlers.RequireTypeForTypedAction(policy); msg != "" {
 		u.WriteError(w, http.StatusBadRequest, msg)
 		return nil
 	}
 	if !handlers.ValidPairings[pairing] {
 		u.WriteError(w, http.StatusBadRequest, fmt.Sprintf("invalid pairing: %s (valid: f, m, ff, mm, fm, mf)", pairing))
+		return nil
+	}
+
+	bidirectionalStr := r.FormValue("bidirectional")
+	bidirectional := bidirectionalStr == "true" || bidirectionalStr == "1"
+	if bidirectional && !handlers.IsDirectionalPairing(pairing) {
+		u.WriteError(w, http.StatusBadRequest, "bidirectional is only allowed for mf or fm pairings")
 		return nil
 	}
 
@@ -104,10 +137,15 @@ func (s *APIServer) uploadGifHandler(w http.ResponseWriter, r *http.Request) err
 		return fmt.Errorf("failed to read uploaded file: %w", err)
 	}
 
-	contentType := header.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = http.DetectContentType(data)
+	// Sniff the real type from the bytes instead of trusting the (spoofable)
+	// multipart header. A wrong content-type on R2 (e.g. application/octet-stream)
+	// makes Discord's media proxy refuse the image, so reject anything that isn't
+	// a genuine GIF and always store it as image/gif.
+	if detected := http.DetectContentType(data); detected != "image/gif" {
+		u.WriteError(w, http.StatusBadRequest, "only GIF files are accepted (got "+detected+")")
+		return nil
 	}
+	contentType := "image/gif"
 
 	id, err := uuid.NewV4()
 	if err != nil {
@@ -124,13 +162,15 @@ func (s *APIServer) uploadGifHandler(w http.ResponseWriter, r *http.Request) err
 	}
 
 	gif := &store.Gif{
-		Action:      policy.Action,
-		Pairing:     pairing,
-		R2Key:       r2Key,
-		ContentType: contentType,
-		SizeBytes:   int64(len(data)),
-		NSFW:        nsfw,
-		CreatedAt:   time.Now().UTC(),
+		Action:        policy.Action,
+		Actions:       actions,
+		Pairing:       pairing,
+		Bidirectional: bidirectional,
+		R2Key:         r2Key,
+		ContentType:   contentType,
+		SizeBytes:     int64(len(data)),
+		NSFW:          nsfw,
+		CreatedAt:     time.Now().UTC(),
 	}
 	if policy.Type != "" {
 		gif.Variant = &policy.Type
@@ -148,12 +188,8 @@ func (s *APIServer) uploadGifHandler(w http.ResponseWriter, r *http.Request) err
 		_ = s.R2Storage.DeleteFile(r2Key)
 		return fmt.Errorf("failed to create gif record: %w", err)
 	}
-	hasTypes, err := s.Store.ActionHasTypes(policy.Action)
-	if err != nil {
-		return err
-	}
 	resp := handlers.BuildGifResponse(gif, s.Config.CDNBaseURL)
-	handlers.HideVariantIfUntyped(&resp, hasTypes)
+	handlers.HideVariantIfUntyped(&resp, policy.HasTypes)
 
 	return u.WriteJSON(w, http.StatusCreated, resp)
 }
@@ -307,6 +343,66 @@ func (s *APIServer) updateGifPairingHandler(w http.ResponseWriter, r *http.Reque
 		return fmt.Errorf("failed to update pairing: %w", err)
 	}
 
+	// bidirectional only makes sense for mf/fm, so drop it otherwise ^^
+	if gif.Bidirectional && !handlers.IsDirectionalPairing(body.Pairing) {
+		if err := s.Store.UpdateGifBidirectional(gif.ID, false); err != nil {
+			return fmt.Errorf("failed to reset bidirectional: %w", err)
+		}
+	}
+
+	return u.WriteJSON(w, http.StatusOK, map[string]string{"status": "updated"})
+}
+
+func (s *APIServer) updateGifActionsHandler(w http.ResponseWriter, r *http.Request) error {
+	gif, err := s.requireGif(w, r)
+	if gif == nil || err != nil {
+		return err
+	}
+
+	var body struct {
+		Actions []string `json:"actions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		u.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return nil
+	}
+
+	actions := parseActions(body.Actions)
+	if len(actions) == 0 {
+		u.WriteError(w, http.StatusBadRequest, "at least one action is required")
+		return nil
+	}
+
+	if err := s.Store.SetGifActions(gif.ID, actions); err != nil {
+		return fmt.Errorf("failed to update actions: %w", err)
+	}
+
+	return u.WriteJSON(w, http.StatusOK, map[string]any{"status": "updated", "actions": actions})
+}
+
+func (s *APIServer) updateGifBidirectionalHandler(w http.ResponseWriter, r *http.Request) error {
+	gif, err := s.requireGif(w, r)
+	if gif == nil || err != nil {
+		return err
+	}
+
+	var body struct {
+		Bidirectional bool `json:"bidirectional"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		u.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return nil
+	}
+
+	if body.Bidirectional && !handlers.IsDirectionalPairing(gif.Pairing) {
+		u.WriteError(w, http.StatusBadRequest, "bidirectional is only allowed for mf or fm pairings")
+		return nil
+	}
+
+	if err := s.Store.UpdateGifBidirectional(gif.ID, body.Bidirectional); err != nil {
+		return fmt.Errorf("failed to update bidirectional: %w", err)
+	}
+
 	return u.WriteJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
@@ -340,8 +436,8 @@ func (s *APIServer) updateGifTypeHandler(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		return err
 	}
-	if hasTypes && variant == nil {
-		u.WriteError(w, http.StatusBadRequest, fmt.Sprintf("type is required for action: %s", gif.Action))
+	if msg := handlers.RequireVariantForTypedAction(gif.Action, hasTypes, variant); msg != "" {
+		u.WriteError(w, http.StatusBadRequest, msg)
 		return nil
 	}
 
