@@ -1,6 +1,6 @@
 ![Banner](./public/logo.svg)
 
-A free and open-source anime reaction GIF API :3
+A free-to-use anime reaction GIF API :3
 
 Every GIF is hand-picked and curated for quality: good resolution, nearly 16:9 aspect ratio, no bugged pixels and no annoying text. Each GIF includes the **anime name** in the response so you always know the source, and you can filter by **gender pairing** (girl x girl, boy > girl, etc.) which is something no other anime GIF API offers ^^
 
@@ -100,3 +100,13 @@ Check documentation at [gifukai.com](https://gifukai.com/endpoints/action-types/
 `type` is optional and only appears in the response when that action is fully typed.
 
 Thank you for using the API! If you have any suggestions, please let me know :3
+
+## License
+
+The API is **free to use**. The source code is **all rights reserved** — public
+for reference, but not for copying or reuse. See [`LICENSE`](./LICENSE).
+Copyright (C) 2026 lucialv.
+
+By using the API you agree to the [Terms of Service](https://gifukai.com/legal/terms/).
+See also the [Privacy Policy](https://gifukai.com/legal/privacy/) and
+[DMCA / Takedown Policy](https://gifukai.com/legal/dmca/).

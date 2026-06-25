@@ -1,0 +1,26 @@
+Copyright (C) 2026 lucialv. All rights reserved.
+
+This source code is made publicly available for reference and transparency
+only. It is NOT open-source software.
+
+The public Gifukai API hosted at api.gifukai.com is free to use, for any
+purpose, without an API key, signup, or fee.
+
+That permission applies to the running service only. It does NOT grant any
+rights to the source code in this repository. Without prior written
+permission from the copyright holder, you may not:
+
+  - copy, reproduce, or republish this code, in whole or in part;
+  - modify, adapt, or create derivative works from it;
+  - distribute, sublicense, sell, or host it; or
+  - use it to operate a competing or substantially similar service.
+
+Reading the code and submitting contributions back to this repository is
+welcome. All other uses require explicit written permission.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
