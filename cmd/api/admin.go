@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"path"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/gofrs/uuid"
 	"github.com/lucialv/gifukai-api/cmd/api/handlers"
+	"github.com/lucialv/gifukai-api/pkg/logging"
 	"github.com/lucialv/gifukai-api/pkg/store"
 	u "github.com/lucialv/gifukai-api/pkg/utils"
 )
@@ -191,6 +193,15 @@ func (s *APIServer) uploadGifHandler(w http.ResponseWriter, r *http.Request) err
 	resp := handlers.BuildGifResponse(gif, s.Config.CDNBaseURL)
 	handlers.HideVariantIfUntyped(&resp, policy.HasTypes)
 
+	logging.FromContext(r.Context()).Info("gif uploaded",
+		slog.String("component", "gif"),
+		slog.String("event", "gif_uploaded"),
+		slog.Int64("gif_id", gif.ID),
+		slog.String("action", policy.Action),
+		slog.String("pairing", gif.Pairing),
+		slog.Int64("size_bytes", gif.SizeBytes),
+	)
+
 	return u.WriteJSON(w, http.StatusCreated, resp)
 }
 
@@ -207,6 +218,13 @@ func (s *APIServer) deleteGifHandler(w http.ResponseWriter, r *http.Request) err
 	if err := s.Store.DeleteGif(gif.ID); err != nil {
 		return fmt.Errorf("failed to delete gif record: %w", err)
 	}
+
+	logging.FromContext(r.Context()).Info("gif deleted",
+		slog.String("component", "gif"),
+		slog.String("event", "gif_deleted"),
+		slog.Int64("gif_id", gif.ID),
+		slog.String("r2_key", gif.R2Key),
+	)
 
 	return u.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
@@ -496,6 +514,13 @@ func (s *APIServer) createAnimeHandler(w http.ResponseWriter, r *http.Request) e
 		return fmt.Errorf("failed to create anime: %w", err)
 	}
 
+	logging.FromContext(r.Context()).Info("anime created",
+		slog.String("component", "anime"),
+		slog.String("event", "anime_created"),
+		slog.Int64("anime_id", anime.ID),
+		slog.String("name", anime.Name),
+	)
+
 	return u.WriteJSON(w, http.StatusCreated, anime)
 }
 
@@ -521,6 +546,13 @@ func (s *APIServer) updateAnimeHandler(w http.ResponseWriter, r *http.Request) e
 		return fmt.Errorf("failed to update anime: %w", err)
 	}
 
+	logging.FromContext(r.Context()).Info("anime updated",
+		slog.String("component", "anime"),
+		slog.String("event", "anime_updated"),
+		slog.Int64("anime_id", id),
+		slog.String("name", body.Name),
+	)
+
 	return u.WriteJSON(w, http.StatusOK, map[string]string{"status": "updated"})
 }
 
@@ -533,6 +565,12 @@ func (s *APIServer) deleteAnimeHandler(w http.ResponseWriter, r *http.Request) e
 	if err := s.Store.DeleteAnime(id); err != nil {
 		return fmt.Errorf("failed to delete anime: %w", err)
 	}
+
+	logging.FromContext(r.Context()).Info("anime deleted",
+		slog.String("component", "anime"),
+		slog.String("event", "anime_deleted"),
+		slog.Int64("anime_id", id),
+	)
 
 	return u.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

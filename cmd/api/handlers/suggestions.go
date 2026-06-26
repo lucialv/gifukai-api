@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"path"
 	"path/filepath"
@@ -11,9 +13,22 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/lucialv/gifukai-api/pkg/logging"
 	"github.com/lucialv/gifukai-api/pkg/store"
 	u "github.com/lucialv/gifukai-api/pkg/utils"
 )
+
+// cleanupR2 deletes an orphaned R2 object and logs if the cleanup itself fails :3
+func (h *Handler) cleanupR2(ctx context.Context, key string) {
+	if err := h.R2Storage.DeleteFile(key); err != nil {
+		logging.FromContext(ctx).Warn("r2 cleanup failed",
+			slog.String("component", "r2"),
+			slog.String("event", "r2_cleanup_failed"),
+			slog.String("key", key),
+			slog.Any("error", err),
+		)
+	}
+}
 
 const maxSuggestionsPerDay = 15
 const maxSuggestionSize = 10 << 20 // 10 MB
@@ -99,7 +114,7 @@ func (h *Handler) CreateSuggestionHandler(w http.ResponseWriter, r *http.Request
 
 	anime := strings.TrimSpace(r.FormValue("anime"))
 	if anime == "" {
-		_ = h.R2Storage.DeleteFile(fileKey)
+		h.cleanupR2(r.Context(), fileKey)
 		u.WriteError(w, http.StatusBadRequest, "anime name is required")
 		return nil
 	}
@@ -122,9 +137,18 @@ func (h *Handler) CreateSuggestionHandler(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := h.Store.CreateSuggestion(suggestion); err != nil {
-		_ = h.R2Storage.DeleteFile(fileKey)
+		h.cleanupR2(r.Context(), fileKey)
 		return fmt.Errorf("failed to create suggestion: %w", err)
 	}
+
+	logging.FromContext(r.Context()).Info("suggestion created",
+		slog.String("component", "suggestion"),
+		slog.String("event", "suggestion_created"),
+		slog.Int64("suggestion_id", suggestion.ID),
+		slog.Int64("user_id", userID),
+		slog.String("action", policy.Action),
+		slog.String("pairing", pairing),
+	)
 
 	return u.WriteJSON(w, http.StatusCreated, suggestion)
 }
@@ -271,16 +295,24 @@ func (h *Handler) ApproveSuggestionHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := h.Store.CreateGif(gif); err != nil {
-		_ = h.R2Storage.DeleteFile(r2Key)
+		h.cleanupR2(r.Context(), r2Key)
 		return fmt.Errorf("failed to create gif record: %w", err)
 	}
 
 	if err := h.Store.UpdateSuggestionApproved(id, r2Key); err != nil {
 		return fmt.Errorf("failed to update suggestion status: %w", err)
 	}
-	_ = h.R2Storage.DeleteFile(suggestion.FileKey)
+	h.cleanupR2(r.Context(), suggestion.FileKey)
 	resp := h.buildGifResponse(gif)
 	HideVariantIfUntyped(&resp, hasTypes)
+
+	logging.FromContext(r.Context()).Info("suggestion approved",
+		slog.String("component", "suggestion"),
+		slog.String("event", "suggestion_approved"),
+		slog.Int64("suggestion_id", id),
+		slog.Int64("gif_id", gif.ID),
+		slog.String("action", action),
+	)
 
 	return u.WriteJSON(w, http.StatusOK, map[string]any{
 		"status": "approved",
@@ -310,7 +342,13 @@ func (h *Handler) RejectSuggestionHandler(w http.ResponseWriter, r *http.Request
 	if err := h.Store.UpdateSuggestionStatus(id, "rejected"); err != nil {
 		return fmt.Errorf("failed to update suggestion status: %w", err)
 	}
-	_ = h.R2Storage.DeleteFile(suggestion.FileKey)
+	h.cleanupR2(r.Context(), suggestion.FileKey)
+
+	logging.FromContext(r.Context()).Info("suggestion rejected",
+		slog.String("component", "suggestion"),
+		slog.String("event", "suggestion_rejected"),
+		slog.Int64("suggestion_id", id),
+	)
 
 	return u.WriteJSON(w, http.StatusOK, map[string]string{"status": "rejected"})
 }

@@ -1,10 +1,11 @@
 package api
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 
 	"github.com/lucialv/gifukai-api/cmd/api/handlers"
+	"github.com/lucialv/gifukai-api/pkg/logging"
 	u "github.com/lucialv/gifukai-api/pkg/utils"
 
 	"github.com/go-chi/chi/v5"
@@ -15,7 +16,12 @@ type apiFunc func(http.ResponseWriter, *http.Request) error
 func makeHTTPHandleFunc(f apiFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := f(w, r); err != nil {
-			log.Printf("Handler error: %v", err)
+			logging.FromContext(r.Context()).Error("handler error",
+				slog.String("event", "handler_error"),
+				slog.String("method", r.Method),
+				slog.String("path", r.URL.Path),
+				slog.Any("error", err),
+			)
 			u.WriteError(w, http.StatusInternalServerError, "internal server error")
 		}
 	}
@@ -48,7 +54,7 @@ func (s *APIServer) Routes() *chi.Mux {
 	r.Post("/auth/logout", makeHTTPHandleFunc(s.authLogoutHandler))
 
 	r.Route("/user", func(r chi.Router) {
-		r.Use(s.UserAuthMiddleware)
+		r.Use(s.Auth.UserAuth)
 		r.Patch("/profile", makeHTTPHandleFunc(h.UpdateProfileHandler))
 		r.Post("/reports", makeHTTPHandleFunc(h.CreateReportHandler))
 		r.Post("/suggestions", makeHTTPHandleFunc(h.CreateSuggestionHandler))
@@ -58,10 +64,10 @@ func (s *APIServer) Routes() *chi.Mux {
 
 	r.Get("/{action}", makeHTTPHandleFunc(h.GetRandomGifHandler))
 
-	r.Post("/admin/login", makeHTTPHandleFunc(s.loginHandler))
+	r.Post("/admin/login", makeHTTPHandleFunc(s.Auth.Login))
 
 	r.Route("/admin", func(r chi.Router) {
-		r.Use(s.AdminKeyMiddleware)
+		r.Use(s.Auth.AdminKey)
 		r.Route("/gifs", func(r chi.Router) {
 			r.Get("/", makeHTTPHandleFunc(s.listGifsHandler))
 			r.Post("/", makeHTTPHandleFunc(s.uploadGifHandler))

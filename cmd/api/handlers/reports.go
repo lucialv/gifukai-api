@@ -3,8 +3,10 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 
+	"github.com/lucialv/gifukai-api/pkg/logging"
 	"github.com/lucialv/gifukai-api/pkg/store"
 	u "github.com/lucialv/gifukai-api/pkg/utils"
 )
@@ -78,6 +80,14 @@ func (h *Handler) CreateReportHandler(w http.ResponseWriter, r *http.Request) er
 	if err := h.Store.CreateReport(report); err != nil {
 		return fmt.Errorf("failed to create report: %w", err)
 	}
+
+	logging.FromContext(r.Context()).Info("report created",
+		slog.String("component", "report"),
+		slog.String("event", "report_created"),
+		slog.Int64("gif_id", body.GifID),
+		slog.Int64("user_id", userID),
+		slog.String("reason", body.Reason),
+	)
 
 	return u.WriteJSON(w, http.StatusCreated, report)
 }

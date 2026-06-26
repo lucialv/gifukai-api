@@ -2,7 +2,7 @@ package api
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -42,11 +42,19 @@ func (s *APIServer) StartStatsWorker(interval time.Duration) {
 func (s *APIServer) refreshStats() {
 	stats, err := s.Store.GetStats()
 	if err != nil {
-		log.Printf("Failed to refresh stats: %v", err)
+		s.Logger.Warn("failed to refresh stats",
+			slog.String("component", "stats"),
+			slog.String("event", "stats_refresh_failed"),
+			slog.Any("error", err),
+		)
 		return
 	}
 	s.statsCache.Set(stats)
-	log.Println("Stats cache refreshed")
+	s.Logger.Info("stats cache refreshed",
+		slog.String("component", "stats"),
+		slog.String("event", "stats_refreshed"),
+		slog.Int("total_gifs", stats.TotalGifs),
+	)
 }
 
 func formatBytes(bytes int64) string {

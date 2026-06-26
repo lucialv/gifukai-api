@@ -1,38 +1,22 @@
 package api
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/lucialv/gifukai-api/pkg/logging"
 	"github.com/lucialv/gifukai-api/pkg/store"
 	u "github.com/lucialv/gifukai-api/pkg/utils"
 )
 
-const (
-	userSessionDuration = 30 * 24 * time.Hour
-	oauthStateTTL       = 10 * time.Minute
-)
-
-func (s *APIServer) generateUserToken(userID int64) (string, error) {
-	bytes := make([]byte, 32)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	token := hex.EncodeToString(bytes)
-	s.userSessions.Store(token, userSession{
-		UserID:    userID,
-		ExpiresAt: time.Now().Add(userSessionDuration),
-	})
-	return token, nil
-}
+const oauthStateTTL = 10 * time.Minute
 
 func (s *APIServer) googleOneTapHandler(w http.ResponseWriter, r *http.Request) error {
 	if s.Config.GoogleClientID == "" {
@@ -73,6 +57,11 @@ func (s *APIServer) googleOneTapHandler(w http.ResponseWriter, r *http.Request) 
 
 	// Verify the token was issued for our client ID
 	if claims.Aud != s.Config.GoogleClientID {
+		logging.FromContext(r.Context()).Warn("google token audience mismatch",
+			slog.String("component", "oauth"),
+			slog.String("event", "oauth_audience_mismatch"),
+			slog.String("provider", "google"),
+		)
 		u.WriteError(w, http.StatusUnauthorized, "token audience mismatch")
 		return nil
 	}
@@ -86,7 +75,10 @@ func (s *APIServer) githubAuthHandler(w http.ResponseWriter, r *http.Request) er
 		return nil
 	}
 
-	state := generateState()
+	state, err := generateState()
+	if err != nil {
+		return err
+	}
 	s.oauthStates.Store(state, time.Now().Add(oauthStateTTL))
 
 	params := url.Values{
@@ -102,6 +94,12 @@ func (s *APIServer) githubAuthHandler(w http.ResponseWriter, r *http.Request) er
 
 func (s *APIServer) githubCallbackHandler(w http.ResponseWriter, r *http.Request) error {
 	if err := s.validateOAuthState(r.URL.Query().Get("state")); err != nil {
+		logging.FromContext(r.Context()).Warn("github oauth state invalid",
+			slog.String("component", "oauth"),
+			slog.String("event", "oauth_state_invalid"),
+			slog.String("provider", "github"),
+			slog.String("reason", err.Error()),
+		)
 		u.WriteError(w, http.StatusBadRequest, err.Error())
 		return nil
 	}
@@ -220,6 +218,12 @@ func (s *APIServer) resolveOAuthUser(w http.ResponseWriter, r *http.Request, pro
 	if err != nil {
 		var mismatch *store.ErrProviderMismatch
 		if errors.As(err, &mismatch) {
+			logging.FromContext(r.Context()).Warn("oauth provider mismatch",
+				slog.String("component", "oauth"),
+				slog.String("event", "oauth_provider_mismatch"),
+				slog.String("provider", provider),
+				slog.String("existing_provider", mismatch.ExistingProvider),
+			)
 			if useRedirect {
 				frontendURL := strings.TrimRight(s.Config.FrontendURL, "/")
 				redirectURL := fmt.Sprintf("%s/gifs?auth_error=provider_mismatch&use_provider=%s",
@@ -233,7 +237,15 @@ func (s *APIServer) resolveOAuthUser(w http.ResponseWriter, r *http.Request, pro
 		return "", false, fmt.Errorf("failed to create/get user: %w", err)
 	}
 
-	token, err = s.generateUserToken(user.ID)
+	token, err = s.Auth.GenerateUserToken(user.ID)
+	if err == nil {
+		logging.FromContext(r.Context()).Info("user logged in",
+			slog.String("component", "oauth"),
+			slog.String("event", "oauth_login"),
+			slog.String("provider", provider),
+			slog.Int64("user_id", user.ID),
+		)
+	}
 	return token, false, err
 }
 
@@ -251,7 +263,8 @@ func (s *APIServer) completeOAuth(w http.ResponseWriter, r *http.Request, provid
 		return err
 	}
 	frontendURL := strings.TrimRight(s.Config.FrontendURL, "/")
-	redirectURL := fmt.Sprintf("%s/gifs?token=%s", frontendURL, token)
+	// token goes in the fragment so it never lands in Referer headers or access logs :3
+	redirectURL := fmt.Sprintf("%s/gifs#token=%s", frontendURL, token)
 	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
 	return nil
 }
@@ -264,20 +277,13 @@ func (s *APIServer) authMeHandler(w http.ResponseWriter, r *http.Request) error 
 	}
 
 	token := strings.TrimPrefix(auth, "Bearer ")
-	val, ok := s.userSessions.Load(token)
+	userID, ok := s.Auth.ResolveUser(token)
 	if !ok {
 		u.WriteError(w, http.StatusUnauthorized, "invalid or expired token")
 		return nil
 	}
 
-	sess := val.(userSession)
-	if time.Now().After(sess.ExpiresAt) {
-		s.userSessions.Delete(token)
-		u.WriteError(w, http.StatusUnauthorized, "token expired")
-		return nil
-	}
-
-	user, err := s.Store.GetUserByID(sess.UserID)
+	user, err := s.Store.GetUserByID(userID)
 	if err != nil {
 		return err
 	}
@@ -293,7 +299,7 @@ func (s *APIServer) authLogoutHandler(w http.ResponseWriter, r *http.Request) er
 	auth := r.Header.Get("Authorization")
 	if auth != "" {
 		token := strings.TrimPrefix(auth, "Bearer ")
-		s.userSessions.Delete(token)
+		s.Auth.DeleteUserSession(token)
 	}
 	return u.WriteJSON(w, http.StatusOK, map[string]string{"status": "logged out"})
 }
@@ -314,8 +320,6 @@ func (s *APIServer) validateOAuthState(state string) error {
 	return nil
 }
 
-func generateState() string {
-	bytes := make([]byte, 16)
-	rand.Read(bytes)
-	return hex.EncodeToString(bytes)
+func generateState() (string, error) {
+	return u.RandomHex(16)
 }
