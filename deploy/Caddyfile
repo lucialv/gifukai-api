@@ -1,0 +1,5 @@
+api.gifukai.com {
+	tls /etc/caddy/certs/origin.pem /etc/caddy/certs/origin.key
+	encode zstd gzip
+	reverse_proxy api:8001
+}
