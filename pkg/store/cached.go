@@ -16,6 +16,7 @@ type cachedData struct {
 	actionTypes map[string][]string
 	actions     []string
 	animes      []Anime
+	aliases     map[string]ActionAlias
 	stats       Stats
 }
 
@@ -59,12 +60,21 @@ func (c *CachedGifStore) Reload() error {
 		return err
 	}
 
+	aliases, err := c.inner.GetAllAliases()
+	if err != nil {
+		return err
+	}
+
 	d := &cachedData{
 		gifs:        gifs,
 		byID:        make(map[int64]*Gif, len(gifs)),
 		byAction:    make(map[string][]*Gif),
 		actionTypes: make(map[string][]string),
 		animes:      animes,
+		aliases:     make(map[string]ActionAlias, len(aliases)),
+	}
+	for _, a := range aliases {
+		d.aliases[a.Alias] = a
 	}
 
 	typeSets := make(map[string]map[string]struct{})
@@ -417,6 +427,32 @@ func (c *CachedGifStore) GetAllAnimes() ([]Anime, error) {
 	return out, nil
 }
 
+// ~~ Aliases ~~
+
+func (c *CachedGifStore) GetAllAliases() ([]ActionAlias, error) {
+	d := c.data.Load()
+	out := make([]ActionAlias, 0, len(d.aliases))
+	for _, a := range d.aliases {
+		out = append(out, a)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Alias < out[j].Alias
+	})
+	return out, nil
+}
+
+// real actions always win over an alias of the same name :3
+func (c *CachedGifStore) ResolveAlias(name string) (*ActionAlias, error) {
+	d := c.data.Load()
+	if len(d.byAction[name]) > 0 {
+		return nil, nil
+	}
+	if a, ok := d.aliases[name]; ok {
+		return &a, nil
+	}
+	return nil, nil
+}
+
 // ~~ Public library ~~
 
 func (c *CachedGifStore) ListPublicGifs(action, pairing, anime, variant string, limit, offset int) ([]Gif, int, error) {
@@ -554,6 +590,30 @@ func (c *CachedGifStore) UpdateAnime(id int64, name string) error {
 
 func (c *CachedGifStore) DeleteAnime(id int64) error {
 	if err := c.inner.DeleteAnime(id); err != nil {
+		return err
+	}
+	c.reloadQuiet()
+	return nil
+}
+
+func (c *CachedGifStore) CreateAlias(alias *ActionAlias) error {
+	if err := c.inner.CreateAlias(alias); err != nil {
+		return err
+	}
+	c.reloadQuiet()
+	return nil
+}
+
+func (c *CachedGifStore) UpdateAlias(alias, action string, variant *string) error {
+	if err := c.inner.UpdateAlias(alias, action, variant); err != nil {
+		return err
+	}
+	c.reloadQuiet()
+	return nil
+}
+
+func (c *CachedGifStore) DeleteAlias(alias string) error {
+	if err := c.inner.DeleteAlias(alias); err != nil {
 		return err
 	}
 	c.reloadQuiet()

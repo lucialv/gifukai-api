@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/gofrs/uuid"
 	"github.com/lucialv/gifukai-api/cmd/api/handlers"
 	"github.com/lucialv/gifukai-api/pkg/logging"
@@ -570,6 +572,140 @@ func (s *APIServer) deleteAnimeHandler(w http.ResponseWriter, r *http.Request) e
 		slog.String("component", "anime"),
 		slog.String("event", "anime_deleted"),
 		slog.Int64("anime_id", id),
+	)
+
+	return u.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (s *APIServer) listAliasesHandler(w http.ResponseWriter, r *http.Request) error {
+	aliases, err := s.Store.GetAllAliases()
+	if err != nil {
+		return err
+	}
+	return u.WriteJSON(w, http.StatusOK, u.OrEmpty(aliases))
+}
+
+// validates the {alias, action, type} body and returns a ready ActionAlias :3
+func (s *APIServer) parseAliasBody(w http.ResponseWriter, r *http.Request, alias string) (*store.ActionAlias, bool) {
+	var body struct {
+		Alias  string `json:"alias"`
+		Action string `json:"action"`
+		Type   string `json:"type"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		u.WriteError(w, http.StatusBadRequest, "invalid JSON body")
+		return nil, false
+	}
+
+	if alias == "" {
+		alias = handlers.NormalizeAction(body.Alias)
+	}
+	action := handlers.NormalizeAction(body.Action)
+
+	if alias == "" {
+		u.WriteError(w, http.StatusBadRequest, "alias is required")
+		return nil, false
+	}
+	if action == "" {
+		u.WriteError(w, http.StatusBadRequest, "action is required")
+		return nil, false
+	}
+	if alias == action {
+		u.WriteError(w, http.StatusBadRequest, "alias cannot equal its target action")
+		return nil, false
+	}
+
+	actions, err := s.Store.GetAllActions()
+	if err != nil {
+		u.WriteError(w, http.StatusInternalServerError, "failed to load actions")
+		return nil, false
+	}
+	if slices.Contains(actions, alias) {
+		u.WriteError(w, http.StatusConflict, fmt.Sprintf("alias %s collides with an existing action", alias))
+		return nil, false
+	}
+
+	variant, err := handlers.NormalizeGifType(body.Type)
+	if err != nil {
+		u.WriteError(w, http.StatusBadRequest, err.Error())
+		return nil, false
+	}
+	var variantPtr *string
+	if variant != "" {
+		variantPtr = &variant
+	}
+
+	return &store.ActionAlias{Alias: alias, Action: action, Variant: variantPtr}, true
+}
+
+func (s *APIServer) createAliasHandler(w http.ResponseWriter, r *http.Request) error {
+	alias, ok := s.parseAliasBody(w, r, "")
+	if !ok {
+		return nil
+	}
+
+	if existing, err := s.Store.ResolveAlias(alias.Alias); err != nil {
+		return err
+	} else if existing != nil {
+		u.WriteError(w, http.StatusConflict, fmt.Sprintf("alias %s already exists", alias.Alias))
+		return nil
+	}
+
+	if err := s.Store.CreateAlias(alias); err != nil {
+		return fmt.Errorf("failed to create alias: %w", err)
+	}
+
+	logging.FromContext(r.Context()).Info("alias created",
+		slog.String("component", "alias"),
+		slog.String("event", "alias_created"),
+		slog.String("alias", alias.Alias),
+		slog.String("action", alias.Action),
+	)
+
+	return u.WriteJSON(w, http.StatusCreated, alias)
+}
+
+func (s *APIServer) updateAliasHandler(w http.ResponseWriter, r *http.Request) error {
+	name := handlers.NormalizeAction(chi.URLParam(r, "alias"))
+	if name == "" {
+		u.WriteError(w, http.StatusBadRequest, "alias is required")
+		return nil
+	}
+
+	alias, ok := s.parseAliasBody(w, r, name)
+	if !ok {
+		return nil
+	}
+
+	if err := s.Store.UpdateAlias(alias.Alias, alias.Action, alias.Variant); err != nil {
+		return fmt.Errorf("failed to update alias: %w", err)
+	}
+
+	logging.FromContext(r.Context()).Info("alias updated",
+		slog.String("component", "alias"),
+		slog.String("event", "alias_updated"),
+		slog.String("alias", alias.Alias),
+		slog.String("action", alias.Action),
+	)
+
+	return u.WriteJSON(w, http.StatusOK, alias)
+}
+
+func (s *APIServer) deleteAliasHandler(w http.ResponseWriter, r *http.Request) error {
+	name := handlers.NormalizeAction(chi.URLParam(r, "alias"))
+	if name == "" {
+		u.WriteError(w, http.StatusBadRequest, "alias is required")
+		return nil
+	}
+
+	if err := s.Store.DeleteAlias(name); err != nil {
+		return fmt.Errorf("failed to delete alias: %w", err)
+	}
+
+	logging.FromContext(r.Context()).Info("alias deleted",
+		slog.String("component", "alias"),
+		slog.String("event", "alias_deleted"),
+		slog.String("alias", name),
 	)
 
 	return u.WriteJSON(w, http.StatusOK, map[string]string{"status": "deleted"})

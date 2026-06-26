@@ -48,6 +48,12 @@ type Anime struct {
 	GifCount int    `json:"gif_count"`
 }
 
+type ActionAlias struct {
+	Alias   string  `json:"alias"`
+	Action  string  `json:"action"`
+	Variant *string `json:"type,omitempty"`
+}
+
 type PairingCount struct {
 	Pairing string `json:"pairing"`
 	Count   int    `json:"count"`
@@ -143,6 +149,13 @@ type GifStore interface {
 	GetAllAnimes() ([]Anime, error)
 	UpdateAnime(id int64, name string) error
 	DeleteAnime(id int64) error
+
+	// ~~ aliases ~~
+	CreateAlias(alias *ActionAlias) error
+	GetAllAliases() ([]ActionAlias, error)
+	UpdateAlias(alias, action string, variant *string) error
+	DeleteAlias(alias string) error
+	ResolveAlias(name string) (*ActionAlias, error)
 
 	// ~~ public library ~~
 	ListPublicGifs(action, pairing, anime, variant string, limit, offset int) ([]Gif, int, error)
@@ -740,6 +753,58 @@ func (s *SQLiteGifStore) DeleteAnime(id int64) error {
 	const q = `DELETE FROM animes WHERE id = ?`
 	_, err := s.db.Exec(q, id)
 	return err
+}
+
+func (s *SQLiteGifStore) CreateAlias(alias *ActionAlias) error {
+	const q = `INSERT INTO action_aliases (alias, action, variant) VALUES (?, ?, ?)`
+	_, err := s.db.Exec(q, alias.Alias, alias.Action, alias.Variant)
+	return err
+}
+
+func (s *SQLiteGifStore) GetAllAliases() ([]ActionAlias, error) {
+	rows, err := s.db.Query(`SELECT alias, action, variant FROM action_aliases ORDER BY alias`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var aliases []ActionAlias
+	for rows.Next() {
+		var a ActionAlias
+		if err := rows.Scan(&a.Alias, &a.Action, &a.Variant); err != nil {
+			return nil, err
+		}
+		aliases = append(aliases, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return aliases, nil
+}
+
+func (s *SQLiteGifStore) UpdateAlias(alias, action string, variant *string) error {
+	const q = `UPDATE action_aliases SET action = ?, variant = ? WHERE alias = ?`
+	_, err := s.db.Exec(q, action, variant, alias)
+	return err
+}
+
+func (s *SQLiteGifStore) DeleteAlias(alias string) error {
+	const q = `DELETE FROM action_aliases WHERE alias = ?`
+	_, err := s.db.Exec(q, alias)
+	return err
+}
+
+func (s *SQLiteGifStore) ResolveAlias(name string) (*ActionAlias, error) {
+	const q = `SELECT alias, action, variant FROM action_aliases WHERE alias = ?`
+	var a ActionAlias
+	err := s.db.QueryRow(q, name).Scan(&a.Alias, &a.Action, &a.Variant)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
 }
 
 func (s *SQLiteGifStore) ListPublicGifs(action, pairing, anime, variant string, limit, offset int) ([]Gif, int, error) {

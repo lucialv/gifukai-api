@@ -128,7 +128,21 @@ type ActionTypePolicy struct {
 }
 
 func ResolveActionTypePolicy(gifStore store.GifStore, rawAction, rawType string, requireActionForType bool) (ActionTypePolicy, string, error) {
-	policy := ActionTypePolicy{Action: NormalizeAction(rawAction)}
+	action := NormalizeAction(rawAction)
+
+	// resolve aliases (e.g. peck -> kiss, locked to cheek) :3
+	alias, err := gifStore.ResolveAlias(action)
+	if err != nil {
+		return ActionTypePolicy{Action: action}, "", err
+	}
+	if alias != nil {
+		action = alias.Action
+		if alias.Variant != nil {
+			rawType = *alias.Variant
+		}
+	}
+
+	policy := ActionTypePolicy{Action: action}
 
 	gifType, err := NormalizeGifType(rawType)
 	if err != nil {

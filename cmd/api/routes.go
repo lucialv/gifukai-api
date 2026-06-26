@@ -89,6 +89,12 @@ func (s *APIServer) Routes() *chi.Mux {
 			r.Put("/{animeId}", makeHTTPHandleFunc(s.updateAnimeHandler))
 			r.Delete("/{animeId}", makeHTTPHandleFunc(s.deleteAnimeHandler))
 		})
+		r.Route("/aliases", func(r chi.Router) {
+			r.Get("/", makeHTTPHandleFunc(s.listAliasesHandler))
+			r.Post("/", makeHTTPHandleFunc(s.createAliasHandler))
+			r.Put("/{alias}", makeHTTPHandleFunc(s.updateAliasHandler))
+			r.Delete("/{alias}", makeHTTPHandleFunc(s.deleteAliasHandler))
+		})
 		r.Route("/reports", func(r chi.Router) {
 			r.Get("/", makeHTTPHandleFunc(h.ListReportsHandler))
 			r.Patch("/{reportId}", makeHTTPHandleFunc(h.UpdateReportHandler))

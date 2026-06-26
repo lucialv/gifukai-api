@@ -17,8 +17,14 @@ type actionCoverageItem struct {
 	PairingCount *int                 `json:"pairing_count,omitempty"`
 }
 
+type aliasInfo struct {
+	Alias   string  `json:"alias"`
+	Variant *string `json:"type,omitempty"`
+}
+
 type actionInfo struct {
-	HasTypes bool `json:"has_types"`
+	HasTypes bool        `json:"has_types"`
+	Aliases  []aliasInfo `json:"aliases,omitempty"`
 }
 
 func (h *Handler) ListActionsHandler(w http.ResponseWriter, r *http.Request) error {
@@ -27,13 +33,22 @@ func (h *Handler) ListActionsHandler(w http.ResponseWriter, r *http.Request) err
 		return err
 	}
 
+	aliases, err := h.Store.GetAllAliases()
+	if err != nil {
+		return err
+	}
+	aliasesByAction := make(map[string][]aliasInfo)
+	for _, a := range aliases {
+		aliasesByAction[a.Action] = append(aliasesByAction[a.Action], aliasInfo{Alias: a.Alias, Variant: a.Variant})
+	}
+
 	out := make(map[string]actionInfo, len(actions))
 	for _, action := range actions {
 		hasTypes, err := h.Store.ActionHasTypes(action)
 		if err != nil {
 			return err
 		}
-		out[action] = actionInfo{HasTypes: hasTypes}
+		out[action] = actionInfo{HasTypes: hasTypes, Aliases: aliasesByAction[action]}
 	}
 
 	return u.WriteJSON(w, http.StatusOK, map[string]any{
