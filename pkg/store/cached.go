@@ -1,7 +1,7 @@
 package store
 
 import (
-	"log"
+	"log/slog"
 	"math/rand/v2"
 	"slices"
 	"sort"
@@ -38,7 +38,11 @@ func (c *CachedGifStore) StartRefreshWorker(interval time.Duration) {
 		defer ticker.Stop()
 		for range ticker.C {
 			if err := c.Reload(); err != nil {
-				log.Printf("Failed to refresh GIF cache: %v", err)
+				slog.Warn("failed to refresh GIF cache",
+					slog.String("component", "cache"),
+					slog.String("event", "cache_refresh_failed"),
+					slog.Any("error", err),
+				)
 			}
 		}
 	}()
@@ -117,13 +121,23 @@ func (c *CachedGifStore) Reload() error {
 	}
 
 	c.data.Store(d)
-	log.Printf("GIF cache loaded: %d gifs, %d actions, %d animes", len(gifs), len(d.actions), len(animes))
+	slog.Info("GIF cache loaded",
+		slog.String("component", "cache"),
+		slog.String("event", "cache_loaded"),
+		slog.Int("gifs", len(gifs)),
+		slog.Int("actions", len(d.actions)),
+		slog.Int("animes", len(animes)),
+	)
 	return nil
 }
 
 func (c *CachedGifStore) reloadQuiet() {
 	if err := c.Reload(); err != nil {
-		log.Printf("Failed to reload GIF cache: %v", err)
+		slog.Warn("failed to reload GIF cache",
+			slog.String("component", "cache"),
+			slog.String("event", "cache_reload_failed"),
+			slog.Any("error", err),
+		)
 	}
 }
 
