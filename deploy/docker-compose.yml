@@ -1,0 +1,24 @@
+services:
+  api:
+    image: ghcr.io/lucialv/gifukai-api:latest
+    restart: unless-stopped
+    env_file: /opt/gifukai-api/.env
+    expose:
+      - "8001"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "443:443"
+    volumes:
+      - /opt/gifukai-api/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /opt/gifukai-api/certs:/etc/caddy/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
