@@ -1,6 +1,7 @@
 package middlewares
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -26,16 +27,19 @@ type userSession struct {
 }
 
 type Auth struct {
-	adminKey  string
-	adminUser string
-	adminPass string
+	adminKey   string
+	adminUser  string
+	adminPass  string
+	libraryKey string
+
+	libraryWarnOnce sync.Once
 
 	sessions     sync.Map // admin token -> adminSession
 	userSessions sync.Map // user token  -> userSession
 }
 
-func NewAuth(adminKey, adminUser, adminPass string) *Auth {
-	return &Auth{adminKey: adminKey, adminUser: adminUser, adminPass: adminPass}
+func NewAuth(adminKey, adminUser, adminPass, libraryKey string) *Auth {
+	return &Auth{adminKey: adminKey, adminUser: adminUser, adminPass: adminPass, libraryKey: libraryKey}
 }
 
 func (a *Auth) AdminKey(next http.Handler) http.Handler {
@@ -71,6 +75,33 @@ func (a *Auth) AdminKey(next http.Handler) http.Handler {
 			slog.String("event", "admin_key_failed"),
 		)
 		u.WriteError(w, http.StatusUnauthorized, "invalid or expired token")
+	})
+}
+
+func (a *Auth) LibraryKey(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if a.libraryKey == "" {
+			a.libraryWarnOnce.Do(func() {
+				logging.FromContext(r.Context()).Warn("LIBRARY_KEY unset — library endpoints are public",
+					slog.String("component", "auth"),
+					slog.String("event", "library_key_unset"),
+				)
+			})
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		key := r.Header.Get("X-Library-Key")
+		if subtle.ConstantTimeCompare([]byte(key), []byte(a.libraryKey)) == 1 {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		logging.FromContext(r.Context()).Warn("library auth failed",
+			slog.String("component", "auth"),
+			slog.String("event", "library_key_failed"),
+		)
+		u.WriteError(w, http.StatusUnauthorized, "invalid or missing library key")
 	})
 }
 

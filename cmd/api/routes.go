@@ -39,13 +39,16 @@ func (s *APIServer) Routes() *chi.Mux {
 	r.Get("/healthz", makeHTTPHandleFunc(h.HealthzHandler))
 	r.Head("/healthz", makeHTTPHandleFunc(h.HealthzHandler))
 
-	r.Get("/stats", makeHTTPHandleFunc(s.statsHandler))
 	r.Get("/actions", makeHTTPHandleFunc(h.ListActionsHandler))
 	r.Get("/actions/{action}/types", makeHTTPHandleFunc(h.ActionTypesHandler))
 
-	r.Get("/library", makeHTTPHandleFunc(s.publicListGifsHandler))
-	r.Get("/library/animes", makeHTTPHandleFunc(s.publicListAnimesHandler))
-	r.Get("/leaderboard", makeHTTPHandleFunc(h.LeaderboardHandler))
+	r.Group(func(r chi.Router) {
+		r.Use(s.Auth.LibraryKey)
+		r.Get("/stats", makeHTTPHandleFunc(s.statsHandler))
+		r.Get("/library", makeHTTPHandleFunc(s.publicListGifsHandler))
+		r.Get("/library/animes", makeHTTPHandleFunc(s.publicListAnimesHandler))
+		r.Get("/leaderboard", makeHTTPHandleFunc(h.LeaderboardHandler))
+	})
 
 	r.Post("/auth/google/onetap", makeHTTPHandleFunc(s.googleOneTapHandler))
 	r.Get("/auth/github", makeHTTPHandleFunc(s.githubAuthHandler))
