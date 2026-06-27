@@ -51,6 +51,7 @@ func main() {
 		AdminKey:   env.GetString("ADMIN_API_KEY", ""),
 		AdminUser:  env.GetString("ADMIN_USER", ""),
 		AdminPass:  env.GetString("ADMIN_PASS", ""),
+		LibraryKey: env.GetString("LIBRARY_KEY", ""),
 		R2: storage.R2Config{
 			AccountID:       env.GetString("R2_ACCOUNT_ID", ""),
 			AccessKeyID:     env.GetString("R2_ACCESS_KEY_ID", ""),

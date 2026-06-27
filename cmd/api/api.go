@@ -29,6 +29,7 @@ type Config struct {
 	AdminKey   string
 	AdminUser  string
 	AdminPass  string
+	LibraryKey string
 	R2         storage.R2Config
 	// OAuth
 	GoogleClientID     string
@@ -56,7 +57,7 @@ func NewAPIServer(config Config, logger *slog.Logger, gifStore store.GifStore, r
 	return &APIServer{
 		Config:    config,
 		Logger:    logger,
-		Auth:      middlewares.NewAuth(config.AdminKey, config.AdminUser, config.AdminPass),
+		Auth:      middlewares.NewAuth(config.AdminKey, config.AdminUser, config.AdminPass, config.LibraryKey),
 		Store:     gifStore,
 		R2Storage: r2Storage,
 	}
