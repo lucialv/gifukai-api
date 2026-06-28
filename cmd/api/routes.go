@@ -36,6 +36,13 @@ func (s *APIServer) Routes() *chi.Mux {
 
 	r := chi.NewRouter()
 
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		u.WriteError(w, http.StatusNotFound, "not found")
+	})
+	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
+		u.WriteError(w, http.StatusMethodNotAllowed, "method not allowed")
+	})
+
 	r.Get("/healthz", makeHTTPHandleFunc(h.HealthzHandler))
 	r.Head("/healthz", makeHTTPHandleFunc(h.HealthzHandler))
 

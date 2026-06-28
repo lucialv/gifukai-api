@@ -52,8 +52,19 @@ func AccessLog(logger *slog.Logger) func(http.Handler) http.Handler {
 					attrs = append(attrs, slog.String("pairing", p))
 				}
 			}
-			reqLog.LogAttrs(r.Context(), slog.LevelInfo, "request", attrs...)
+			reqLog.LogAttrs(r.Context(), levelForStatus(ww.Status()), "request", attrs...)
 		})
+	}
+}
+
+func levelForStatus(status int) slog.Level {
+	switch {
+	case status >= 500:
+		return slog.LevelError
+	case status >= 400:
+		return slog.LevelWarn
+	default:
+		return slog.LevelInfo
 	}
 }
 
