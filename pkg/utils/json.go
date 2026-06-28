@@ -12,11 +12,12 @@ func WriteJSON(w http.ResponseWriter, status int, v any) error {
 }
 
 type ErrorResponse struct {
-	Error string `json:"error"`
+	Status int    `json:"status"`
+	Error  string `json:"error"`
 }
 
 func WriteError(w http.ResponseWriter, status int, message string) {
-	WriteJSON(w, status, ErrorResponse{Error: message})
+	WriteJSON(w, status, ErrorResponse{Status: status, Error: message})
 }
 
 // OrEmpty ensures nil slices serialize as [] instead of null in JSON :3
